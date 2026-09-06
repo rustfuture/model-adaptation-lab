@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import statistics
 import subprocess
@@ -31,18 +32,55 @@ SYSTEM_PROMPT = (
 )
 
 
-def get_git_commit(cwd: Path) -> str:
+def get_git_info(cwd: Path) -> dict:
     try:
-        res = subprocess.run(
+        commit = subprocess.run(
             ["git", "rev-parse", "HEAD"],
             cwd=str(cwd),
             capture_output=True,
             text=True,
             check=True,
-        )
-        return res.stdout.strip()
+        ).stdout.strip()
     except Exception:
-        return "unknown"
+        commit = "unknown"
+
+    try:
+        # Check only tracked files so untracked artifacts never trigger dirty
+        res = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        is_dirty = bool(res.stdout.strip())
+    except Exception:
+        is_dirty = None
+
+    return {
+        "commit": commit,
+        "is_dirty": is_dirty,
+    }
+
+
+def get_runtime_environment() -> dict:
+    env = {
+        "python_version": sys.version.split()[0],
+        "platform": sys.platform,
+    }
+    try:
+        import mlx.core as mx
+        env["mlx_version"] = getattr(mx, "__version__", "unknown")
+    except Exception:
+        env["mlx_version"] = "not_available"
+
+    try:
+        import mlx_lm
+        env["mlx_lm_version"] = getattr(mlx_lm, "__version__", "unknown")
+    except Exception:
+        env["mlx_lm_version"] = "not_available"
+
+    return env
 
 
 def parse_adapter_metadata(adapter_dir: Path) -> dict:
@@ -224,29 +262,64 @@ def main():
             print(f"Error: MLX adapter directory not found: {adapter_path}", file=sys.stderr)
             sys.exit(2)
 
-    # 3. Validate output directory and report name
-    output_dir = args.output_dir.resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-
+    # 3. Validate output directory and report name BEFORE any filesystem mutation (mkdir/mkdtemp)
     report_name = args.report_name
-    if "/" in report_name or "\\" in report_name or ".." in report_name:
+    if not report_name or "/" in report_name or "\\" in report_name or ".." in report_name:
         print(
             f"Error: --report-name must be a simple filename without path traversal: {report_name}",
             file=sys.stderr,
         )
         sys.exit(2)
 
-    target_report_file = (output_dir / report_name).resolve()
-    if target_report_file.is_symlink():
-        print(f"Error: Target report path cannot be a symlink: {target_report_file}", file=sys.stderr)
+    # Symlink check on raw target report BEFORE resolve (blocks links pointing inside or outside output_dir)
+    raw_target_report = args.output_dir / report_name
+    if raw_target_report.is_symlink() or os.path.islink(str(raw_target_report)):
+        print(f"Error: Target report path cannot be a symlink: {raw_target_report}", file=sys.stderr)
         sys.exit(2)
 
-    # Verify report is strictly within output_dir
+    # Canonical paths for containment and protected input collision checks
+    output_dir_canon = args.output_dir.resolve()
+    target_report_canon = (output_dir_canon / report_name).resolve()
+
+    # Verify report does not escape output directory
     try:
-        target_report_file.relative_to(output_dir)
+        target_report_canon.relative_to(output_dir_canon)
     except ValueError:
-        print(f"Error: Report destination escaped output directory: {target_report_file}", file=sys.stderr)
+        print(f"Error: Report destination escaped output directory: {target_report_canon}", file=sys.stderr)
         sys.exit(2)
+
+    # Protected inputs contract: --overwrite must NEVER allow overwriting model, adapter, or dataset
+    protected_paths = [data_file, model_path, ROOT.resolve()]
+    if not args.baseline_only and adapter_path:
+        protected_paths.append(adapter_path)
+
+    if output_dir_canon in protected_paths:
+        print(
+            f"Error: --output-dir conflicts with protected input path: {output_dir_canon}. Overwrite is forbidden.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    if target_report_canon == data_file or target_report_canon in protected_paths:
+        print(
+            f"Error: Target report file conflicts with protected input: {target_report_canon}. Overwrite is forbidden.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    # Output directory cannot be placed inside model or adapter
+    if model_path in output_dir_canon.parents:
+        print(f"Error: --output-dir cannot be inside model directory: {model_path}", file=sys.stderr)
+        sys.exit(2)
+
+    if not args.baseline_only and adapter_path and adapter_path in output_dir_canon.parents:
+        print(f"Error: --output-dir cannot be inside adapter directory: {adapter_path}", file=sys.stderr)
+        sys.exit(2)
+
+    # ALL validations passed; now and only now create output directory and atomic run directory
+    output_dir = output_dir_canon
+    output_dir.mkdir(parents=True, exist_ok=True)
+    target_report_file = target_report_canon
 
     # 4. Atomic run directory for output isolation
     run_dir = Path(tempfile.mkdtemp(prefix="eval-run-", dir=output_dir)).resolve()
@@ -359,10 +432,25 @@ def main():
     model_cfg_path = model_path / "config.json"
     adapter_cfg_path = (adapter_path / "adapter_config.json") if adapter_path else None
 
+    evaluator_file = Path(__file__).resolve()
+    evaluator_sha256 = compute_sha256(evaluator_file)
+    git_info = get_git_info(ROOT)
+    runtime_env = get_runtime_environment()
+
     final_report = {
         "eval_run_id": eval_run_id,
         "timestamp_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "git_commit": get_git_commit(ROOT),
+        "git_commit": git_info["commit"],
+        "git_dirty": git_info["is_dirty"],
+        "evaluator": {
+            "path": str(evaluator_file),
+            "sha256": evaluator_sha256,
+        },
+        "invocation": {
+            "command": " ".join(sys.argv),
+            "args": sys.argv[1:],
+        },
+        "environment": runtime_env,
         "dataset": {
             "path": str(data_file),
             "sha256": data_sha256,

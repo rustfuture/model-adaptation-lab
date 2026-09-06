@@ -66,7 +66,7 @@ check_pair_conflict() {
   fi
 }
 
-# 1. Determine run directory and identifier safely
+# 1. Determine run identifier and check existing run if MLX_RUN_ID is set
 if [[ -n "${MLX_RUN_ID:-}" ]]; then
   if [[ ! "$MLX_RUN_ID" =~ ^[a-zA-Z0-9_-]+$ ]]; then
     echo "Error: MLX_RUN_ID must contain only alphanumeric characters, underscores, and dashes: $MLX_RUN_ID" >&2
@@ -74,30 +74,21 @@ if [[ -n "${MLX_RUN_ID:-}" ]]; then
   fi
   run_id="$MLX_RUN_ID"
   base_run_dir="/tmp/model-lab-runs/${run_id}"
-else
-  mkdir -p /tmp/model-lab-runs
-  base_run_dir="$(mktemp -d /tmp/model-lab-runs/run-XXXXXX)"
-  run_id="$(basename "$base_run_dir")"
+
+  # Reject existing run directory if it has a manifest or is not empty
+  if [[ -f "$base_run_dir/run_manifest.json" ]] || { [[ -d "$base_run_dir" ]] && [[ -n "$(ls -A "$base_run_dir" 2>/dev/null)" ]]; }; then
+    echo "Error: Run directory or manifest already exists for explicit MLX_RUN_ID ($run_id): $base_run_dir" >&2
+    echo "Refusing to overwrite or reuse existing run. Choose a fresh run ID." >&2
+    exit 2
+  fi
 fi
 
 model_dir="${MLX_MODEL_DIR:-/tmp/model-lab-mlx/qwen2.5-coder-1.5b}"
-data_dir="${MLX_DATA_DIR:-${base_run_dir}/data}"
-adapter_dir="${MLX_ADAPTER_DIR:-${base_run_dir}/adapters}"
 mlx_lora_bin="${MLX_LM_LORA_BIN:-mlx_lm.lora}"
 
 # --- READ-ONLY VALIDATIONS (NO MUTATION BEFORE ALL CHECKS PASS) ---
 validate_single_path "$model_dir" "MLX_MODEL_DIR"
-validate_single_path "$data_dir" "MLX_DATA_DIR"
-validate_single_path "$adapter_dir" "MLX_ADAPTER_DIR"
-
 model_canon="$(canonical_path "$model_dir")"
-data_canon="$(canonical_path "$data_dir")"
-adapter_canon="$(canonical_path "$adapter_dir")"
-
-# Check all pairs for equality and directory nesting
-check_pair_conflict "$model_canon" "$data_canon" "Model directory" "Data directory"
-check_pair_conflict "$model_canon" "$adapter_canon" "Model directory" "Adapter directory"
-check_pair_conflict "$data_canon" "$adapter_canon" "Data directory" "Adapter directory"
 
 if [[ ! -d "$model_dir" ]]; then
   echo "Error: MLX base model directory not found: $model_dir" >&2
@@ -105,15 +96,31 @@ if [[ ! -d "$model_dir" ]]; then
   exit 2
 fi
 
-# Reject existing non-empty target directories
-if [[ -d "$data_dir" ]] && [[ -n "$(ls -A "$data_dir" 2>/dev/null)" ]]; then
-  echo "Error: Data directory exists and is not empty: $data_dir" >&2
+# If explicit data_dir or adapter_dir provided, validate them before mutating anything
+if [[ -n "${MLX_DATA_DIR:-}" ]]; then
+  validate_single_path "$MLX_DATA_DIR" "MLX_DATA_DIR"
+  data_canon="$(canonical_path "$MLX_DATA_DIR")"
+  check_pair_conflict "$model_canon" "$data_canon" "Model directory" "Data directory"
+fi
+
+if [[ -n "${MLX_ADAPTER_DIR:-}" ]]; then
+  validate_single_path "$MLX_ADAPTER_DIR" "MLX_ADAPTER_DIR"
+  adapter_canon="$(canonical_path "$MLX_ADAPTER_DIR")"
+  check_pair_conflict "$model_canon" "$adapter_canon" "Model directory" "Adapter directory"
+fi
+
+if [[ -n "${MLX_DATA_DIR:-}" && -n "${MLX_ADAPTER_DIR:-}" ]]; then
+  check_pair_conflict "$data_canon" "$adapter_canon" "Data directory" "Adapter directory"
+fi
+
+if [[ -n "${MLX_DATA_DIR:-}" ]] && [[ -d "$MLX_DATA_DIR" ]] && [[ -n "$(ls -A "$MLX_DATA_DIR" 2>/dev/null)" ]]; then
+  echo "Error: Data directory exists and is not empty: $MLX_DATA_DIR" >&2
   echo "Refusing to overwrite existing data. Please specify a clean directory." >&2
   exit 2
 fi
 
-if [[ -d "$adapter_dir" ]] && [[ -n "$(ls -A "$adapter_dir" 2>/dev/null)" ]]; then
-  echo "Error: Adapter directory exists and is not empty: $adapter_dir" >&2
+if [[ -n "${MLX_ADAPTER_DIR:-}" ]] && [[ -d "$MLX_ADAPTER_DIR" ]] && [[ -n "$(ls -A "$MLX_ADAPTER_DIR" 2>/dev/null)" ]]; then
+  echo "Error: Adapter directory exists and is not empty: $MLX_ADAPTER_DIR" >&2
   echo "Refusing to overwrite existing adapter. Please specify a clean directory." >&2
   exit 2
 fi
@@ -133,8 +140,30 @@ else
   }
 fi
 
-# --- MUTATIONS BEGIN ONLY AFTER ALL VALIDATIONS PASS ---
-mkdir -p "$base_run_dir"
+# --- ALL PRE-FLIGHT VALIDATIONS PASSED: NOW ALLOCATE RUN DIRECTORY ---
+if [[ -n "${MLX_RUN_ID:-}" ]]; then
+  # run_id and base_run_dir were assigned and validated above
+  mkdir -p "$base_run_dir"
+else
+  mkdir -p /tmp/model-lab-runs
+  base_run_dir="$(mktemp -d /tmp/model-lab-runs/run-XXXXXX)"
+  run_id="$(basename "$base_run_dir")"
+fi
+
+data_dir="${MLX_DATA_DIR:-${base_run_dir}/data}"
+adapter_dir="${MLX_ADAPTER_DIR:-${base_run_dir}/adapters}"
+
+validate_single_path "$data_dir" "MLX_DATA_DIR"
+validate_single_path "$adapter_dir" "MLX_ADAPTER_DIR"
+
+data_canon="$(canonical_path "$data_dir")"
+adapter_canon="$(canonical_path "$adapter_dir")"
+
+# Check all pairs for equality and directory nesting
+check_pair_conflict "$model_canon" "$data_canon" "Model directory" "Data directory"
+check_pair_conflict "$model_canon" "$adapter_canon" "Model directory" "Adapter directory"
+check_pair_conflict "$data_canon" "$adapter_canon" "Data directory" "Adapter directory"
+
 mkdir -p "$data_dir"
 mkdir -p "$adapter_dir"
 

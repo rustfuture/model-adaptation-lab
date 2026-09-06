@@ -24,9 +24,19 @@ elif [[ -x "/tmp/model-lab-mlx-venv/bin/pyflakes" ]]; then
 fi
 echo "[PASS] Shell and Python syntax verification passed."
 
-# Create isolated test environment
+# Create isolated test environment with strict ownership
 test_sandbox="$(mktemp -d /tmp/mlx-suite-sandbox-XXXXXX)"
-trap 'rm -rf "$test_sandbox"' EXIT
+declare -a CREATED_RUN_DIRS=()
+
+cleanup() {
+  rm -rf "$test_sandbox"
+  for rdir in ${CREATED_RUN_DIRS+"${CREATED_RUN_DIRS[@]}"}; do
+    if [[ -d "$rdir" ]]; then
+      rm -rf "$rdir"
+    fi
+  done
+}
+trap cleanup EXIT
 
 mock_model="$test_sandbox/mock_model"
 mkdir -p "$mock_model"
@@ -73,6 +83,25 @@ def generate(model, tokenizer, prompt, max_tokens=150, verbose=False):
     return "diagnosis: mock diagnosed error\nfix_strategy: match none and use branches"
 PY
 
+# Setup mock MLX LoRA executable
+mock_bin_dir="$test_sandbox/mock_bins"
+mkdir -p "$mock_bin_dir"
+mock_lora_exec="$mock_bin_dir/mock_mlx_lm_lora"
+cat <<'SH' > "$mock_lora_exec"
+#!/usr/bin/env bash
+adapter_path=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --adapter-path) adapter_path="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+mkdir -p "$adapter_path"
+echo '{"lora_parameters": {"rank": 8, "scale": 20.0, "dropout": 0.0}, "iters": 50, "fine_tune_type": "lora"}' > "$adapter_path/adapter_config.json"
+echo "mock weights" > "$adapter_path/adapters.safetensors"
+SH
+chmod +x "$mock_lora_exec"
+
 # 2. Test: Rejection of root, HOME, and repo root
 set +e
 out=$(MLX_MODEL_DIR="/" bash "$repo_root/scripts/prepare_mlx_model.sh" 2>&1)
@@ -115,7 +144,7 @@ set +e
 shared_dir="$test_sandbox/shared_path"
 mkdir -p "$shared_dir"
 echo "SENTINEL_DATA" > "$shared_dir/sentinel.txt"
-out=$(MLX_MODEL_DIR="$mock_model" MLX_DATA_DIR="$shared_dir" MLX_ADAPTER_DIR="$shared_dir" bash "$repo_root/scripts/train_mlx_lora.sh" 2>&1)
+out=$(MLX_LM_LORA_BIN="$mock_lora_exec" MLX_MODEL_DIR="$mock_model" MLX_DATA_DIR="$shared_dir" MLX_ADAPTER_DIR="$shared_dir" bash "$repo_root/scripts/train_mlx_lora.sh" 2>&1)
 code=$?
 set -e
 [[ $code -ne 0 ]] || { echo "[FAIL] train_mlx_lora.sh should reject identical data and adapter dirs"; exit 1; }
@@ -125,7 +154,7 @@ set -e
 # Nested path test
 nested_sub="$shared_dir/nested_adapter"
 set +e
-out=$(MLX_MODEL_DIR="$mock_model" MLX_DATA_DIR="$shared_dir" MLX_ADAPTER_DIR="$nested_sub" bash "$repo_root/scripts/train_mlx_lora.sh" 2>&1)
+out=$(MLX_LM_LORA_BIN="$mock_lora_exec" MLX_MODEL_DIR="$mock_model" MLX_DATA_DIR="$shared_dir" MLX_ADAPTER_DIR="$nested_sub" bash "$repo_root/scripts/train_mlx_lora.sh" 2>&1)
 code=$?
 set -e
 [[ $code -ne 0 ]] || { echo "[FAIL] train_mlx_lora.sh should reject nested adapter dir inside data dir"; exit 1; }
@@ -138,9 +167,120 @@ set +e
 MLX_MODEL_DIR="/" MLX_DATA_DIR="$precheck_fail_dir" bash "$repo_root/scripts/train_mlx_lora.sh" >/dev/null 2>&1 || true
 set -e
 [[ ! -d "$test_sandbox/fail_target_parent" ]] || { echo "[FAIL] Pre-validation must not create directories!"; exit 1; }
+
+# Also verify that invalid train arguments create NO run directory under /tmp/model-lab-runs
+mkdir -p /tmp/model-lab-runs
+runs_before=$(find /tmp/model-lab-runs -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+set +e
+MLX_MODEL_DIR="/tmp/nonexistent_model_${RANDOM}" bash "$repo_root/scripts/train_mlx_lora.sh" >/dev/null 2>&1 || true
+set -e
+runs_after=$(find /tmp/model-lab-runs -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+[[ "$runs_before" -eq "$runs_after" ]] || { echo "[FAIL] Invalid train input created orphan run directory!"; exit 1; }
+
+# Also verify that invalid report-name does NOT create output-dir in evaluate_mlx.py
+never_created_dir="$test_sandbox/never_created_dir_${RANDOM}"
+set +e
+PYTHONPATH="$mock_site_packages" python3 "$repo_root/scripts/evaluate_mlx.py" \
+  --model "$mock_model" \
+  --baseline-only \
+  --output-dir "$never_created_dir" \
+  --report-name "../bad_escape.json" >/dev/null 2>&1 || true
+set -e
+[[ ! -d "$never_created_dir" ]] || { echo "[FAIL] evaluate_mlx.py created output directory on invalid report name!"; exit 1; }
 echo "[PASS] Pre-validation mutation-free guarantee verified."
 
-# 6. Test: Evaluator full successful pipeline with mock MLX backend
+# 6. Test: Sentinel protection and concurrent isolated runs
+sentinel_run_id="sentinel_isolated_${$}_${RANDOM}"
+sentinel_dir="/tmp/model-lab-runs/$sentinel_run_id"
+mkdir -p "$sentinel_dir"
+echo "CANARY_DATA_DO_NOT_DELETE" > "$sentinel_dir/canary.txt"
+
+worker1_run_id="worker1_isolated_${$}_${RANDOM}"
+worker2_run_id="worker2_isolated_${$}_${RANDOM}"
+CREATED_RUN_DIRS+=("/tmp/model-lab-runs/$worker1_run_id" "/tmp/model-lab-runs/$worker2_run_id")
+
+MLX_LM_LORA_BIN="$mock_lora_exec" \
+MLX_MODEL_DIR="$mock_model" \
+MLX_RUN_ID="$worker1_run_id" \
+bash "$repo_root/scripts/train_mlx_lora.sh" >/dev/null
+
+MLX_LM_LORA_BIN="$mock_lora_exec" \
+MLX_MODEL_DIR="$mock_model" \
+MLX_RUN_ID="$worker2_run_id" \
+bash "$repo_root/scripts/train_mlx_lora.sh" >/dev/null
+
+# Assert both runs produced distinct valid manifests
+[[ -f "/tmp/model-lab-runs/$worker1_run_id/run_manifest.json" ]] || { echo "[FAIL] Worker 1 manifest missing!"; exit 1; }
+[[ -f "/tmp/model-lab-runs/$worker2_run_id/run_manifest.json" ]] || { echo "[FAIL] Worker 2 manifest missing!"; exit 1; }
+
+# Assert pre-existing sentinel was completely untouched
+[[ -f "$sentinel_dir/canary.txt" ]] || { echo "[FAIL] Sentinel canary file was destroyed by concurrent runs!"; exit 1; }
+[[ "$(cat "$sentinel_dir/canary.txt")" == "CANARY_DATA_DO_NOT_DELETE" ]] || { echo "[FAIL] Sentinel canary content altered!"; exit 1; }
+
+# Explicit MLX_RUN_ID reuse rejection test
+set +e
+out=$(MLX_LM_LORA_BIN="$mock_lora_exec" MLX_MODEL_DIR="$mock_model" MLX_RUN_ID="$worker1_run_id" bash "$repo_root/scripts/train_mlx_lora.sh" 2>&1)
+code=$?
+set -e
+[[ $code -ne 0 ]] || { echo "[FAIL] train_mlx_lora.sh should reject reusing existing MLX_RUN_ID"; exit 1; }
+[[ "$out" == *"already exists for explicit MLX_RUN_ID"* ]] || { echo "[FAIL] unexpected reuse error: $out"; exit 1; }
+
+# Clean up worker1 and assert worker2 & sentinel remain intact
+rm -rf "/tmp/model-lab-runs/$worker1_run_id"
+[[ ! -d "/tmp/model-lab-runs/$worker1_run_id" ]] || { echo "[FAIL] Worker 1 directory not removed!"; exit 1; }
+[[ -f "/tmp/model-lab-runs/$worker2_run_id/run_manifest.json" ]] || { echo "[FAIL] Worker 2 was affected by Worker 1 cleanup!"; exit 1; }
+[[ -f "$sentinel_dir/canary.txt" ]] || { echo "[FAIL] Sentinel was affected by Worker 1 cleanup!"; exit 1; }
+
+rm -rf "/tmp/model-lab-runs/$worker2_run_id"
+rm -rf "$sentinel_dir"
+echo "[PASS] Test isolation, sentinel preservation, and explicit MLX_RUN_ID protection verified."
+
+# 7. Test: Real symlink guards in evaluate_mlx.py (pointing inside and outside)
+symlink_test_dir="$test_sandbox/symlink_guards"
+mkdir -p "$symlink_test_dir"
+
+# Inside symlink test
+ln -s internal_target.json "$symlink_test_dir/symlink_inside.json"
+set +e
+out=$(PYTHONPATH="$mock_site_packages" python3 "$repo_root/scripts/evaluate_mlx.py" \
+  --model "$mock_model" \
+  --baseline-only \
+  --output-dir "$symlink_test_dir" \
+  --report-name "symlink_inside.json" 2>&1)
+code=$?
+set -e
+[[ $code -ne 0 ]] || { echo "[FAIL] evaluate_mlx.py should reject symlink inside output_dir"; exit 1; }
+[[ "$out" == *"Target report path cannot be a symlink"* ]] || { echo "[FAIL] unexpected inside symlink error: $out"; exit 1; }
+
+# Outside symlink test
+ln -s /tmp/outside_target.json "$symlink_test_dir/symlink_outside.json"
+set +e
+out=$(PYTHONPATH="$mock_site_packages" python3 "$repo_root/scripts/evaluate_mlx.py" \
+  --model "$mock_model" \
+  --baseline-only \
+  --output-dir "$symlink_test_dir" \
+  --report-name "symlink_outside.json" 2>&1)
+code=$?
+set -e
+[[ $code -ne 0 ]] || { echo "[FAIL] evaluate_mlx.py should reject symlink outside output_dir"; exit 1; }
+[[ "$out" == *"Target report path cannot be a symlink"* ]] || { echo "[FAIL] unexpected outside symlink error: $out"; exit 1; }
+echo "[PASS] Real symlink guards (inside and outside targets) verified."
+
+# 8. Test: Overwrite protection against protected inputs
+set +e
+out=$(PYTHONPATH="$mock_site_packages" python3 "$repo_root/scripts/evaluate_mlx.py" \
+  --model "$mock_model" \
+  --baseline-only \
+  --output-dir "$mock_model" \
+  --overwrite 2>&1)
+code=$?
+set -e
+[[ $code -ne 0 ]] || { echo "[FAIL] evaluate_mlx.py should reject --output-dir == protected input"; exit 1; }
+[[ "$out" == *"conflicts with protected input path"* ]] || { echo "[FAIL] unexpected overwrite error: $out"; exit 1; }
+[[ -f "$mock_model/config.json" ]] || { echo "[FAIL] Protected model config was destroyed!"; exit 1; }
+echo "[PASS] Overwrite protection against protected inputs verified."
+
+# 9. Test: Evaluator full successful pipeline with mock MLX backend and provenance verification
 eval_out_dir="$test_sandbox/eval_output"
 mkdir -p "$eval_out_dir"
 PYTHONPATH="$mock_site_packages" python3 "$repo_root/scripts/evaluate_mlx.py" \
@@ -151,7 +291,7 @@ PYTHONPATH="$mock_site_packages" python3 "$repo_root/scripts/evaluate_mlx.py" \
 
 [[ -f "$eval_out_dir/test-report.json" ]] || { echo "[FAIL] test-report.json not produced!"; exit 1; }
 
-# Verify schema and metadata in output report
+# Verify schema, metadata, and new provenance fields in output report
 python3 -c "
 import json
 with open('$eval_out_dir/test-report.json') as f:
@@ -165,10 +305,18 @@ assert 'strategy_substring_contained' in r['fine_tuned']
 assert 'strategy_exact_match' in r['fine_tuned']
 assert 'manual_keyword_coverage' in r['fine_tuned']
 assert r['parameters']['max_tokens'] == 150
-print('[PASS] Mock MLX evaluation report metadata and schema successfully verified.')
+
+# Provenance assertions
+assert 'git_commit' in r and len(r['git_commit']) > 0
+assert 'git_dirty' in r
+assert 'evaluator' in r and len(r['evaluator']['sha256']) == 64
+assert 'environment' in r and 'python_version' in r['environment']
+assert 'invocation' in r and 'command' in r['invocation']
+
+print('[PASS] Mock MLX evaluation report metadata, schema, and provenance successfully verified.')
 "
 
-# 7. Test: Unknown sample ID handling in evaluator
+# 10. Test: Unknown sample ID handling in evaluator
 dataset_with_unknown="$test_sandbox/dataset_unknown.jsonl"
 python3 -c "
 import json
@@ -206,7 +354,7 @@ assert 'unmeasured' in cov, f'Expected unmeasured annotation in keyword coverage
 print('[PASS] Unknown sample ID properly recorded as unmeasured in manual_keyword_coverage.')
 "
 
-# 8. Test: Missing required field in dataset record fails explicitly
+# 11. Test: Missing required field in dataset record fails explicitly
 dataset_missing_field="$test_sandbox/dataset_missing.jsonl"
 python3 -c "
 import json
@@ -232,7 +380,7 @@ set -e
 [[ "$out" == *"missing non-empty string field"* ]] || { echo "[FAIL] unexpected missing field error: $out"; exit 1; }
 echo "[PASS] Dataset schema validation (missing/empty required field) verified."
 
-# 9. Test: Missing adapter fails explicitly without --baseline-only
+# 12. Test: Missing adapter fails explicitly without --baseline-only
 set +e
 out=$(PYTHONPATH="$mock_site_packages" python3 "$repo_root/scripts/evaluate_mlx.py" \
   --model "$mock_model" \
@@ -244,7 +392,7 @@ set -e
 [[ "$out" == *"adapter directory not found"* ]] || { echo "[FAIL] unexpected adapter error: $out"; exit 1; }
 echo "[PASS] Missing adapter explicit rejection verified."
 
-# 10. Test: Baseline-only mode runs without adapter
+# 13. Test: Baseline-only mode runs without adapter
 PYTHONPATH="$mock_site_packages" python3 "$repo_root/scripts/evaluate_mlx.py" \
   --model "$mock_model" \
   --baseline-only \
@@ -260,7 +408,7 @@ assert r['parameters']['baseline_only'] is True
 print('[PASS] Baseline-only evaluation verified.')
 "
 
-# 11. Test: Report name traversal and symlink guards
+# 14. Test: Report name traversal guards
 set +e
 out=$(PYTHONPATH="$mock_site_packages" python3 "$repo_root/scripts/evaluate_mlx.py" \
   --model "$mock_model" \
@@ -273,7 +421,7 @@ set -e
 [[ "$out" == *"must be a simple filename without path traversal"* ]] || { echo "[FAIL] unexpected traversal error: $out"; exit 1; }
 echo "[PASS] Report name path traversal protection verified."
 
-# 12. Test: Consecutive evaluations preserve atomic run directories
+# 15. Test: Consecutive evaluations preserve atomic run directories
 PYTHONPATH="$mock_site_packages" python3 "$repo_root/scripts/evaluate_mlx.py" \
   --model "$mock_model" \
   --baseline-only \
@@ -287,33 +435,16 @@ run_count=$(find "$test_sandbox/run_isolation_out" -maxdepth 1 -type d -name "ev
 [[ "$run_count" -ge 2 ]] || { echo "[FAIL] Expected at least 2 atomic run directories, found $run_count"; exit 1; }
 echo "[PASS] Atomic run directory isolation preserved across consecutive executions."
 
-# 13. Test: End-to-end Mock Train -> Run Manifest -> Evaluation
-mock_bin_dir="$test_sandbox/mock_bins"
-mkdir -p "$mock_bin_dir"
-mock_lora_exec="$mock_bin_dir/mock_mlx_lm_lora"
-cat <<'SH' > "$mock_lora_exec"
-#!/usr/bin/env bash
-# Mock MLX LoRA binary that creates mock adapter outputs
-adapter_path=""
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --adapter-path) adapter_path="$2"; shift 2 ;;
-    *) shift ;;
-  esac
-done
-mkdir -p "$adapter_path"
-echo '{"lora_parameters": {"rank": 8, "scale": 20.0, "dropout": 0.0}, "iters": 50, "fine_tune_type": "lora"}' > "$adapter_path/adapter_config.json"
-echo "mock weights" > "$adapter_path/adapters.safetensors"
-SH
-chmod +x "$mock_lora_exec"
+# 16. Test: End-to-end Mock Train -> Run Manifest -> Evaluation with Unique Run ID
+unique_pipeline_run_id="pipeline_run_${$}_${RANDOM}"
+CREATED_RUN_DIRS+=("/tmp/model-lab-runs/$unique_pipeline_run_id")
 
-mock_train_run_id="mock_test_run_123"
 MLX_LM_LORA_BIN="$mock_lora_exec" \
 MLX_MODEL_DIR="$mock_model" \
-MLX_RUN_ID="$mock_train_run_id" \
+MLX_RUN_ID="$unique_pipeline_run_id" \
 bash "$repo_root/scripts/train_mlx_lora.sh" >/dev/null
 
-manifest_path="/tmp/model-lab-runs/$mock_train_run_id/run_manifest.json"
+manifest_path="/tmp/model-lab-runs/$unique_pipeline_run_id/run_manifest.json"
 [[ -f "$manifest_path" ]] || { echo "[FAIL] run_manifest.json was not generated!"; exit 1; }
 
 # Now evaluate using the generated manifest
@@ -329,7 +460,8 @@ assert data['adapter']['metadata']['rank'] == 8
 print('[PASS] End-to-end mock train -> run manifest -> evaluation verified.')
 "
 
-# Cleanup mock run
-rm -rf "/tmp/model-lab-runs/$mock_train_run_id"
+# Clean up the specific pipeline run directory created for this test
+rm -rf "/tmp/model-lab-runs/$unique_pipeline_run_id"
 
-echo "=== All 13 MLX safety, regression, and evaluator tests passed successfully ==="
+echo "=== All 16 MLX safety, regression, isolation, and evaluator tests passed successfully ==="
+
