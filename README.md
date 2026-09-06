@@ -16,9 +16,12 @@ This repository currently contains the reproducible data contract, split validat
 ```bash
 python3 scripts/validate_dataset.py
 python3 scripts/baseline.py
+python3 scripts/ollama_baseline.py
 ```
 
 The validator prints the dataset hash and split counts. The baseline reports diagnosis accuracy on the held-out split; it is a lower-bound plumbing check, not evidence of model quality. A future experiment must add a model/prompt baseline before LoRA/QLoRA, retain train/validation/test provenance, record seed and resource use, and evaluate compilation/test behavior on an untouched test set.
+
+The Ollama baseline is optional and local. It writes responses only under ignored `artifacts/`; an unavailable model exits with status 2 and a `not_available` record rather than fabricating a score.
 
 ## Safety and evaluation boundary
 
