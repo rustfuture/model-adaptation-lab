@@ -24,6 +24,8 @@ The validator prints the dataset hash and split counts. The baseline reports dia
 
 The Ollama baseline is optional and local. It writes responses only under ignored `artifacts/`; an unavailable model exits with status 2 and a `not_available` record rather than fabricating a score.
 
+The training gate is intentionally still `not_run`. The downloaded Ollama model is an inference artifact, not a training checkpoint, and no training libraries are installed. See [`training-manifest.example.json`](training-manifest.example.json) and [`reports/training-readiness.md`](reports/training-readiness.md) for the exact prerequisites and zero-spend stop gates.
+
 ## Safety and evaluation boundary
 
 Compiler text and repository code are treated as data, not instructions. Suggested patches must be applied in an isolated temporary checkout and pass formatting, compilation, and behavior tests. A compiling patch is not automatically a correct patch. Training and hosted inference are intentionally deferred until the license, data rights, hardware fit, and spending ceiling are recorded.

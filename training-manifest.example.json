@@ -1,0 +1,19 @@
+{
+  "status": "not_run",
+  "base_model": "Qwen/Qwen2.5-Coder-1.5B-Instruct",
+  "base_model_revision": "PIN_BEFORE_TRAINING",
+  "base_model_license": "Apache-2.0",
+  "dataset_sha256": "bd488f5826fdae9e8fab7ad0911534fad96757bdd7cb99c45103870f68392d05",
+  "method": "LoRA_or_MLX_LoRA_TO_BE_SELECTED",
+  "seed": null,
+  "train_command": null,
+  "hardware": "Apple M4 Pro, 24 GB unified memory",
+  "max_spend_usd": 0,
+  "stop_if": [
+    "memory pressure",
+    "unsupported model format",
+    "test leakage",
+    "no held-out improvement",
+    "budget limit exceeded"
+  ]
+}
