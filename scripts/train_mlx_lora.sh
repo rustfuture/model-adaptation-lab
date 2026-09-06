@@ -140,6 +140,41 @@ else
   }
 fi
 
+# --- PRE-FLIGHT: Explicit vs Default path collision check ---
+# When MLX_RUN_ID is set, we know base_run_dir ahead of time.
+# Check if any explicit path collides with a would-be default path.
+if [[ -n "${MLX_RUN_ID:-}" ]]; then
+  projected_data_default="$(canonical_path "${base_run_dir}/data")"
+  projected_adapter_default="$(canonical_path "${base_run_dir}/adapters")"
+
+  # If MLX_DATA_DIR is set but MLX_ADAPTER_DIR is not:
+  # explicit data_dir vs projected default adapter_dir
+  if [[ -n "${MLX_DATA_DIR:-}" && -z "${MLX_ADAPTER_DIR:-}" ]]; then
+    check_pair_conflict "$data_canon" "$projected_adapter_default" "Data directory" "Adapter directory (default)"
+  fi
+
+  # If MLX_ADAPTER_DIR is set but MLX_DATA_DIR is not:
+  # explicit adapter_dir vs projected default data_dir
+  if [[ -z "${MLX_DATA_DIR:-}" && -n "${MLX_ADAPTER_DIR:-}" ]]; then
+    check_pair_conflict "$projected_data_default" "$adapter_canon" "Data directory (default)" "Adapter directory"
+  fi
+
+  # Also check explicit paths vs base_run_dir itself for nesting
+  projected_base_canon="$(canonical_path "$base_run_dir")"
+  if [[ -n "${MLX_DATA_DIR:-}" ]]; then
+    if [[ "$data_canon" == "$projected_base_canon" ]]; then
+      echo "Error: MLX_DATA_DIR ($data_canon) cannot be the run directory itself." >&2
+      exit 2
+    fi
+  fi
+  if [[ -n "${MLX_ADAPTER_DIR:-}" ]]; then
+    if [[ "$adapter_canon" == "$projected_base_canon" ]]; then
+      echo "Error: MLX_ADAPTER_DIR ($adapter_canon) cannot be the run directory itself." >&2
+      exit 2
+    fi
+  fi
+fi
+
 # --- ALL PRE-FLIGHT VALIDATIONS PASSED: NOW ALLOCATE RUN DIRECTORY ---
 if [[ -n "${MLX_RUN_ID:-}" ]]; then
   # run_id and base_run_dir were assigned and validated above
@@ -149,6 +184,14 @@ else
   base_run_dir="$(mktemp -d /tmp/model-lab-runs/run-XXXXXX)"
   run_id="$(basename "$base_run_dir")"
 fi
+
+run_dir_owner=true
+cleanup_run_dir() {
+  if [[ "${run_dir_owner:-false}" == "true" && -n "${base_run_dir:-}" && -d "$base_run_dir" ]]; then
+    rm -rf "$base_run_dir"
+  fi
+}
+trap cleanup_run_dir EXIT
 
 data_dir="${MLX_DATA_DIR:-${base_run_dir}/data}"
 adapter_dir="${MLX_ADAPTER_DIR:-${base_run_dir}/adapters}"
@@ -209,3 +252,6 @@ print(f'Wrote run manifest: {sys.argv[7]}')
 " "$run_id" "$model_canon" "$data_canon" "$adapter_canon" "${MLX_ITERS:-50}" "${MLX_LEARNING_RATE:-1e-4}" "$manifest_file"
 
 echo "Training complete. Run manifest generated at: $manifest_file"
+
+# Success — disable cleanup trap so the run directory is preserved
+run_dir_owner=false

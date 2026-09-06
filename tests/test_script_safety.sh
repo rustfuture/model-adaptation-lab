@@ -24,12 +24,15 @@ elif [[ -x "/tmp/model-lab-mlx-venv/bin/pyflakes" ]]; then
 fi
 echo "[PASS] Shell and Python syntax verification passed."
 
-# Create isolated test environment with strict ownership
+# Create isolated test environment with strict ownership tracking
 test_sandbox="$(mktemp -d /tmp/mlx-suite-sandbox-XXXXXX)"
+
+# Only track run dirs that we atomically create and confirm exist
 declare -a CREATED_RUN_DIRS=()
 
 cleanup() {
   rm -rf "$test_sandbox"
+  # Only clean dirs that we confirmed we created
   for rdir in ${CREATED_RUN_DIRS+"${CREATED_RUN_DIRS[@]}"}; do
     if [[ -d "$rdir" ]]; then
       rm -rf "$rdir"
@@ -189,51 +192,182 @@ set -e
 [[ ! -d "$never_created_dir" ]] || { echo "[FAIL] evaluate_mlx.py created output directory on invalid report name!"; exit 1; }
 echo "[PASS] Pre-validation mutation-free guarantee verified."
 
-# 6. Test: Sentinel protection and concurrent isolated runs
+# 6. Test: Sentinel protection, truly concurrent workers, and MLX_RUN_ID reuse rejection
 sentinel_run_id="sentinel_isolated_${$}_${RANDOM}"
 sentinel_dir="/tmp/model-lab-runs/$sentinel_run_id"
 mkdir -p "$sentinel_dir"
 echo "CANARY_DATA_DO_NOT_DELETE" > "$sentinel_dir/canary.txt"
 
-worker1_run_id="worker1_isolated_${$}_${RANDOM}"
-worker2_run_id="worker2_isolated_${$}_${RANDOM}"
-CREATED_RUN_DIRS+=("/tmp/model-lab-runs/$worker1_run_id" "/tmp/model-lab-runs/$worker2_run_id")
+# --- Truly concurrent workers: run in background and wait ---
+worker1_run_id="worker1_concurrent_${$}_${RANDOM}"
+worker2_run_id="worker2_concurrent_${$}_${RANDOM}"
 
+# Launch both workers concurrently in background
 MLX_LM_LORA_BIN="$mock_lora_exec" \
 MLX_MODEL_DIR="$mock_model" \
 MLX_RUN_ID="$worker1_run_id" \
-bash "$repo_root/scripts/train_mlx_lora.sh" >/dev/null
+bash "$repo_root/scripts/train_mlx_lora.sh" >/dev/null &
+pid1=$!
 
 MLX_LM_LORA_BIN="$mock_lora_exec" \
 MLX_MODEL_DIR="$mock_model" \
 MLX_RUN_ID="$worker2_run_id" \
-bash "$repo_root/scripts/train_mlx_lora.sh" >/dev/null
+bash "$repo_root/scripts/train_mlx_lora.sh" >/dev/null &
+pid2=$!
+
+# Wait for both and capture exit codes
+set +e
+wait "$pid1"; exit1=$?
+wait "$pid2"; exit2=$?
+set -e
+
+[[ $exit1 -eq 0 ]] || { echo "[FAIL] Concurrent worker 1 failed with exit $exit1!"; exit 1; }
+[[ $exit2 -eq 0 ]] || { echo "[FAIL] Concurrent worker 2 failed with exit $exit2!"; exit 1; }
+
+# Track for cleanup only after confirming they were created
+if [[ -d "/tmp/model-lab-runs/$worker1_run_id" ]]; then
+  CREATED_RUN_DIRS+=("/tmp/model-lab-runs/$worker1_run_id")
+fi
+if [[ -d "/tmp/model-lab-runs/$worker2_run_id" ]]; then
+  CREATED_RUN_DIRS+=("/tmp/model-lab-runs/$worker2_run_id")
+fi
 
 # Assert both runs produced distinct valid manifests
-[[ -f "/tmp/model-lab-runs/$worker1_run_id/run_manifest.json" ]] || { echo "[FAIL] Worker 1 manifest missing!"; exit 1; }
-[[ -f "/tmp/model-lab-runs/$worker2_run_id/run_manifest.json" ]] || { echo "[FAIL] Worker 2 manifest missing!"; exit 1; }
+[[ -f "/tmp/model-lab-runs/$worker1_run_id/run_manifest.json" ]] || { echo "[FAIL] Concurrent worker 1 manifest missing!"; exit 1; }
+[[ -f "/tmp/model-lab-runs/$worker2_run_id/run_manifest.json" ]] || { echo "[FAIL] Concurrent worker 2 manifest missing!"; exit 1; }
 
-# Assert pre-existing sentinel was completely untouched
+# Assert one worker's cleanup doesn't affect the other
+# Clean up worker 1 and verify worker 2 is intact
+rm -rf "/tmp/model-lab-runs/$worker1_run_id"
+[[ -f "/tmp/model-lab-runs/$worker2_run_id/run_manifest.json" ]] || { echo "[FAIL] Worker 2 was affected by Worker 1 cleanup!"; exit 1; }
+
+# Assert pre-existing sentinel was completely untouched by concurrent runs
 [[ -f "$sentinel_dir/canary.txt" ]] || { echo "[FAIL] Sentinel canary file was destroyed by concurrent runs!"; exit 1; }
-[[ "$(cat "$sentinel_dir/canary.txt")" == "CANARY_DATA_DO_NOT_DELETE" ]] || { echo "[FAIL] Sentinel canary content altered!"; exit 1; }
+sentinel_content="$(cat "$sentinel_dir/canary.txt")"
+[[ "$sentinel_content" == "CANARY_DATA_DO_NOT_DELETE" ]] || { echo "[FAIL] Sentinel canary content altered! Got: $sentinel_content"; exit 1; }
 
-# Explicit MLX_RUN_ID reuse rejection test
+# Explicit MLX_RUN_ID reuse rejection test (worker2 still exists)
 set +e
-out=$(MLX_LM_LORA_BIN="$mock_lora_exec" MLX_MODEL_DIR="$mock_model" MLX_RUN_ID="$worker1_run_id" bash "$repo_root/scripts/train_mlx_lora.sh" 2>&1)
+out=$(MLX_LM_LORA_BIN="$mock_lora_exec" MLX_MODEL_DIR="$mock_model" MLX_RUN_ID="$worker2_run_id" bash "$repo_root/scripts/train_mlx_lora.sh" 2>&1)
 code=$?
 set -e
 [[ $code -ne 0 ]] || { echo "[FAIL] train_mlx_lora.sh should reject reusing existing MLX_RUN_ID"; exit 1; }
 [[ "$out" == *"already exists for explicit MLX_RUN_ID"* ]] || { echo "[FAIL] unexpected reuse error: $out"; exit 1; }
 
-# Clean up worker1 and assert worker2 & sentinel remain intact
-rm -rf "/tmp/model-lab-runs/$worker1_run_id"
-[[ ! -d "/tmp/model-lab-runs/$worker1_run_id" ]] || { echo "[FAIL] Worker 1 directory not removed!"; exit 1; }
-[[ -f "/tmp/model-lab-runs/$worker2_run_id/run_manifest.json" ]] || { echo "[FAIL] Worker 2 was affected by Worker 1 cleanup!"; exit 1; }
-[[ -f "$sentinel_dir/canary.txt" ]] || { echo "[FAIL] Sentinel was affected by Worker 1 cleanup!"; exit 1; }
-
 rm -rf "/tmp/model-lab-runs/$worker2_run_id"
 rm -rf "$sentinel_dir"
-echo "[PASS] Test isolation, sentinel preservation, and explicit MLX_RUN_ID protection verified."
+echo "[PASS] Truly concurrent workers, sentinel preservation, and MLX_RUN_ID reuse rejection verified."
+
+# 6b. Test: Sentinel byte-for-byte preservation after failure + EXIT cleanup
+failure_sentinel_dir="$test_sandbox/failure_sentinel_workspace"
+mkdir -p "$failure_sentinel_dir"
+failure_sentinel_file="$failure_sentinel_dir/precious_data.bin"
+echo "FAILURE_SENTINEL_BYTE_FOR_BYTE_EXACT" > "$failure_sentinel_file"
+expected_sentinel_hash="$(shasum -a 256 "$failure_sentinel_file" | cut -d' ' -f1)"
+
+# Run train with invalid model (will fail) — the EXIT trap should not touch our sentinel
+set +e
+MLX_LM_LORA_BIN="$mock_lora_exec" \
+MLX_MODEL_DIR="/tmp/nonexistent_model_${$}_${RANDOM}" \
+MLX_DATA_DIR="$failure_sentinel_dir" \
+bash "$repo_root/scripts/train_mlx_lora.sh" >/dev/null 2>&1
+set -e
+
+# Verify sentinel is byte-for-byte intact after failure + EXIT trap cleanup
+[[ -f "$failure_sentinel_file" ]] || { echo "[FAIL] Sentinel file destroyed after failure + EXIT cleanup!"; exit 1; }
+actual_sentinel_hash="$(shasum -a 256 "$failure_sentinel_file" | cut -d' ' -f1)"
+[[ "$expected_sentinel_hash" == "$actual_sentinel_hash" ]] || {
+  echo "[FAIL] Sentinel content modified after failure! Expected hash: $expected_sentinel_hash, got: $actual_sentinel_hash"
+  exit 1
+}
+echo "[PASS] Sentinel byte-for-byte preserved after failure + EXIT cleanup."
+
+# 6c. Test: Same explicit MLX_RUN_ID race — atomic ownership, loser must not delete winner
+race_run_id="race_test_${$}_${RANDOM}"
+race_dir="/tmp/model-lab-runs/$race_run_id"
+
+# First process wins: create it normally
+MLX_LM_LORA_BIN="$mock_lora_exec" \
+MLX_MODEL_DIR="$mock_model" \
+MLX_RUN_ID="$race_run_id" \
+bash "$repo_root/scripts/train_mlx_lora.sh" >/dev/null
+CREATED_RUN_DIRS+=("$race_dir")
+
+# Verify winner's manifest exists
+[[ -f "$race_dir/run_manifest.json" ]] || { echo "[FAIL] Race winner manifest missing!"; exit 1; }
+winner_manifest_hash="$(shasum -a 256 "$race_dir/run_manifest.json" | cut -d' ' -f1)"
+
+# Second process (loser) tries same ID — must be rejected
+set +e
+out=$(MLX_LM_LORA_BIN="$mock_lora_exec" MLX_MODEL_DIR="$mock_model" MLX_RUN_ID="$race_run_id" bash "$repo_root/scripts/train_mlx_lora.sh" 2>&1)
+code=$?
+set -e
+[[ $code -ne 0 ]] || { echo "[FAIL] Loser process should have been rejected!"; exit 1; }
+
+# Verify loser did NOT delete winner's files
+[[ -f "$race_dir/run_manifest.json" ]] || { echo "[FAIL] Loser deleted winner's manifest!"; exit 1; }
+post_race_manifest_hash="$(shasum -a 256 "$race_dir/run_manifest.json" | cut -d' ' -f1)"
+[[ "$winner_manifest_hash" == "$post_race_manifest_hash" ]] || {
+  echo "[FAIL] Loser modified winner's manifest! Before: $winner_manifest_hash, After: $post_race_manifest_hash"
+  exit 1
+}
+rm -rf "$race_dir"
+echo "[PASS] Same MLX_RUN_ID race: atomic ownership, loser cannot delete winner's files."
+
+# 6d. Test: Explicit vs default path collision caught pre-allocation (Item 4 regression)
+preflight_run_id="preflight_collision_${$}_${RANDOM}"
+runs_before=$(find /tmp/model-lab-runs -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+
+set +e
+out=$(MLX_LM_LORA_BIN="$mock_lora_exec" \
+  MLX_MODEL_DIR="$mock_model" \
+  MLX_RUN_ID="$preflight_run_id" \
+  MLX_DATA_DIR="/tmp/model-lab-runs/${preflight_run_id}/adapters" \
+  bash "$repo_root/scripts/train_mlx_lora.sh" 2>&1)
+code=$?
+set -e
+[[ $code -ne 0 ]] || { echo "[FAIL] Explicit data dir == default adapter dir collision not caught!"; exit 1; }
+[[ "$out" == *"cannot be the same directory"* ]] || [[ "$out" == *"cannot be inside"* ]] || {
+  echo "[FAIL] Expected collision error for explicit vs default path, got: $out"
+  exit 1
+}
+
+# Verify no orphan run dir was created
+runs_after=$(find /tmp/model-lab-runs -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+[[ "$runs_before" -eq "$runs_after" ]] || {
+  echo "[FAIL] Pre-flight collision left orphan run directory! Before: $runs_before, After: $runs_after"
+  exit 1
+}
+
+# Also test reverse: explicit adapter dir == default data dir
+preflight_run_id2="preflight_reverse_${$}_${RANDOM}"
+set +e
+out=$(MLX_LM_LORA_BIN="$mock_lora_exec" \
+  MLX_MODEL_DIR="$mock_model" \
+  MLX_RUN_ID="$preflight_run_id2" \
+  MLX_ADAPTER_DIR="/tmp/model-lab-runs/${preflight_run_id2}/data" \
+  bash "$repo_root/scripts/train_mlx_lora.sh" 2>&1)
+code=$?
+set -e
+[[ $code -ne 0 ]] || { echo "[FAIL] Reverse explicit vs default collision not caught!"; exit 1; }
+echo "[PASS] Explicit vs default path collision caught before allocation (no orphan dirs)."
+
+# 6e. Test: Post-allocation failure cleans up run dir (cleanup trap)
+postalloc_run_id="postalloc_cleanup_${$}_${RANDOM}"
+set +e
+# Use a nonexistent lora binary to trigger failure AFTER allocation
+MLX_LM_LORA_BIN="/tmp/nonexistent_lora_binary_${RANDOM}" \
+MLX_MODEL_DIR="$mock_model" \
+MLX_RUN_ID="$postalloc_run_id" \
+bash "$repo_root/scripts/train_mlx_lora.sh" >/dev/null 2>&1
+set -e
+# The cleanup trap should have removed the allocated run directory
+[[ ! -d "/tmp/model-lab-runs/$postalloc_run_id" ]] || {
+  echo "[FAIL] Post-allocation failure did not clean up run directory!"
+  rm -rf "/tmp/model-lab-runs/$postalloc_run_id"
+  exit 1
+}
+echo "[PASS] Post-allocation failure cleanup trap works correctly."
 
 # 7. Test: Real symlink guards in evaluate_mlx.py (pointing inside and outside)
 symlink_test_dir="$test_sandbox/symlink_guards"
@@ -437,12 +571,16 @@ echo "[PASS] Atomic run directory isolation preserved across consecutive executi
 
 # 16. Test: End-to-end Mock Train -> Run Manifest -> Evaluation with Unique Run ID
 unique_pipeline_run_id="pipeline_run_${$}_${RANDOM}"
-CREATED_RUN_DIRS+=("/tmp/model-lab-runs/$unique_pipeline_run_id")
 
 MLX_LM_LORA_BIN="$mock_lora_exec" \
 MLX_MODEL_DIR="$mock_model" \
 MLX_RUN_ID="$unique_pipeline_run_id" \
 bash "$repo_root/scripts/train_mlx_lora.sh" >/dev/null
+
+# Only track after confirmed creation
+if [[ -d "/tmp/model-lab-runs/$unique_pipeline_run_id" ]]; then
+  CREATED_RUN_DIRS+=("/tmp/model-lab-runs/$unique_pipeline_run_id")
+fi
 
 manifest_path="/tmp/model-lab-runs/$unique_pipeline_run_id/run_manifest.json"
 [[ -f "$manifest_path" ]] || { echo "[FAIL] run_manifest.json was not generated!"; exit 1; }
@@ -463,5 +601,4 @@ print('[PASS] End-to-end mock train -> run manifest -> evaluation verified.')
 # Clean up the specific pipeline run directory created for this test
 rm -rf "/tmp/model-lab-runs/$unique_pipeline_run_id"
 
-echo "=== All 16 MLX safety, regression, isolation, and evaluator tests passed successfully ==="
-
+echo "=== All 21 MLX safety, regression, isolation, concurrency, and evaluator tests passed successfully ==="
