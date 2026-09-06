@@ -13,7 +13,7 @@ STRATEGIES = {
 }
 held_out = [record for record in records if record["split"] == "test"]
 correct = sum(STRATEGIES.get(record["error_code"]) == record["fix_strategy"] for record in held_out)
-print(f"baseline=deterministic_error_code_strategy")
+print("baseline=deterministic_error_code_strategy")
 print(f"test_records={len(held_out)}")
 print(f"exact_strategy_accuracy={correct}/{len(held_out)}")
 print("interpretation=deterministic plumbing lower bound; model and fine-tuning results are evaluated separately")
