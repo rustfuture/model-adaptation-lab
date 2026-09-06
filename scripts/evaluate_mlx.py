@@ -99,7 +99,7 @@ def main():
     parser.add_argument(
         "--model",
         type=Path,
-        default=Path("/tmp/model-lab-mlx/qwen2.5-coder-1.5b"),
+        default=None,
         help="Converted MLX model directory",
     )
     parser.add_argument(
@@ -192,11 +192,14 @@ def main():
             manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
             if not adapter_path and manifest_data.get("adapter_dir"):
                 adapter_path = Path(manifest_data["adapter_dir"])
-            if not args.model and manifest_data.get("model_dir"):
+            if not model_path and manifest_data.get("model_dir"):
                 model_path = Path(manifest_data["model_dir"])
         except Exception as e:
             print(f"Error: Failed to parse run manifest: {e}", file=sys.stderr)
             sys.exit(2)
+
+    if model_path is None:
+        model_path = Path("/tmp/model-lab-mlx/qwen2.5-coder-1.5b")
 
     # Default adapter fallback only if not baseline-only and not provided
     if not args.baseline_only and adapter_path is None:
