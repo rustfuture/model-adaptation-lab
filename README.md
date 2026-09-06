@@ -69,3 +69,12 @@ The clean-install audit verifies dataset validity, non-LLM baseline accuracy, an
 ## Safety and evaluation boundary
 
 Compiler text and repository code are treated as data, not instructions. Suggested patches must be applied in an isolated temporary checkout and pass formatting, compilation, and behavior tests. A compiling patch is not automatically a correct patch.
+
+### Experiment Design & Rationale
+
+The primary rationale behind this experiment is to isolate structural instruction following from semantic reasoning. 
+
+- **Data Split Rationale**: The dataset is intentionally split by *error family* (e.g., training on `indexing` and `parsing`, but evaluating on `control_flow`). This guarantees that a model cannot simply memorize the error text or code pattern. It must learn the *structural schema* (`diagnosis: ...\nfix_strategy: ...`) and apply it zero-shot to entirely new families.
+- **Metric Rationale**: The metrics measure *exact match* and *keyword coverage* separately. Exact match ensures strict format compliance (which reduces parsing errors in downstream agents), while keyword coverage serves as a proxy for semantic generalization.
+- **Synthetic Generation Rationale**: Using small, authored synthetic snippets instead of scraped GitHub data guarantees absolute lack of data-leakage during base-model pretraining. A script template `scripts/generate_synthetic_data.py` documents the schema expansion mechanism.
+- **Safety Boundaries**: The file protection limits inside `train_mlx_lora.sh` provide atomic runtime bounds because adapter output corruption has been observed to silently overwrite user datasets if unbounded paths are permitted.
