@@ -7,11 +7,11 @@ This repository contains the reproducible data contract, split validator, determ
 ## Current status
 
 - **Dataset**: 12 authored, synthetic Rust-error records; no customer or scraped private data.
-- **Split**: train/validation/test are separated by error family to eliminate near-duplicate leakage.
+- **Split**: train/validation/test are strictly separated by error family (train: `parsing` and `indexing`, validation: `ownership`, test: `control_flow`) to eliminate near-duplicate leakage.
 - **Base Model**: `Qwen/Qwen2.5-Coder-1.5B-Instruct` (Apache-2.0, commit `2e1fd397ee46e1388853d2af2c993145b0f1098a`), 4-bit quantized MLX format.
 - **Baseline**: deterministic error-code strategy classifier (1/3 exact match on held-out test).
 - **LoRA Training**: Completed locally via MLX (50 iters, rank 8, lr 1e-4, seed 42, peak memory 1.59 GB, duration 10.2s).
-- **Outcome & Negative Result**: Adapter successfully learned the concise two-line structural schema (`diagnosis: ...\nfix_strategy: ...`) and reduced p50 latency from 825 ms to 355 ms (57% reduction). However, on the unseen held-out error family, semantic generalization failed due to sample memorization (exact match 0/3, keyword proxy 0/3 vs 2/3 for base). This negative generalization result is honestly documented.
+- **Outcome & Negative Result**: Adapter successfully learned the concise two-line structural schema (`diagnosis: ...\nfix_strategy: ...`), reducing generation latency by 57% (p50 825 ms to 355 ms) due to eliminating conversational preamble. However, semantic generalization on unseen error families failed due to sample memorization (0/3 exact match, 0/3 keyword proxy vs 2/3 for base). Shorter latency on a failing output is not a general capability improvement; this negative generalization result is honestly documented.
 - **GPU/API spend**: $0.00.
 
 ## Reproducing the pipeline
@@ -27,23 +27,44 @@ python3 scripts/baseline.py
 python3 scripts/prepare_mlx_data.py
 
 # 4. In an Apple-Silicon MLX environment, fetch the pinned model revision and
-#    create the 4-bit MLX directory
+#    create the 4-bit MLX directory safely into a fresh destination:
 scripts/prepare_mlx_model.sh
 
-# 5. Train the pinned experiment
-MLX_MODEL_DIR=/tmp/model-lab-mlx/qwen2.5-coder-1.5b \
-  MLX_ADAPTER_DIR=/tmp/model-lab-adapters \
-  scripts/train_mlx_lora.sh
+# 5. Train the pinned experiment in an isolated, atomic run directory
+# scripts/train_mlx_lora.sh creates /tmp/model-lab-runs/<run_id>/ and outputs a run_manifest.json.
+scripts/train_mlx_lora.sh
 
-# 6. Evaluate the base model and adapter on the untouched test split
+# 6. Evaluate using the generated run manifest:
+python3 scripts/evaluate_mlx.py --manifest /tmp/model-lab-runs/<run_id>/run_manifest.json
+
+# Alternatively, evaluate explicit model and adapter paths:
 python3 scripts/evaluate_mlx.py \
   --model /tmp/model-lab-mlx/qwen2.5-coder-1.5b \
   --adapter /tmp/model-lab-adapters
+
+# Or evaluate the quantized base model only:
+python3 scripts/evaluate_mlx.py \
+  --model /tmp/model-lab-mlx/qwen2.5-coder-1.5b \
+  --baseline-only
 ```
 
-The model-preparation wrapper verifies the exact Hugging Face revision (`2e1fd397ee46e1388853d2af2c993145b0f1098a`) before converting it. The training wrapper copies only `train.jsonl` and `valid.jsonl` into the MLX training directory; `data/mlx/test.jsonl` is never passed to training. Set `HF_MODEL_DIR`, `MLX_MODEL_DIR`, `MLX_DATA_DIR`, `MLX_ADAPTER_DIR`, `MLX_ITERS`, `MLX_LEARNING_RATE`, and `MLX_SEED` to reproduce the run in another isolated workspace. The exact historical command and measured outputs are recorded in [`training-manifest.json`](training-manifest.json) and [`reports/training-run-2026-09-06.md`](reports/training-run-2026-09-06.md).
+### Script Safety & File Protection Contract
 
-The recorded run used `mlx`/`mlx_lm` 0.31.3 and a 4-bit conversion of the pinned Apache-2.0 Qwen revision. MLX and model weights are intentionally not committed; a clean reproduction must install the compatible MLX packages and download/convert that public revision before running the wrapper.
+All helper shell and Python scripts enforce defensive path and environment guards:
+- Destructive operations (`rm -rf`) are eliminated. Existing non-empty destination directories are rejected with an explicit error to protect user models and adapters from accidental deletion.
+- Path relationship checks verify all directory pairs (`model`, `data`, `adapter`, `hf_source`) preventing path collisions, parent/child nesting, symlinks, root (`/`), user home, and repository escapes without performing pre-check mutations.
+- Unique atomic run directories (`/tmp/model-lab-runs/run-XXXXXX`) isolate training runs by default, generating a `run_manifest.json` with exact configuration metadata for evaluation.
+- Existing Hugging Face checkouts with uncommitted modifications are detected and preserved without checkout or overwrite.
+- Clear, actionable errors are emitted if `git-lfs` is missing when LFS pointer weights are encountered, or when MLX executables (`mlx_lm.convert`, `mlx_lm.lora`) are absent from PATH.
+- Verify script safety rules at any time with: `./tests/test_script_safety.sh`.
+
+### Environment & Dependencies
+
+The recorded training and evaluation runs used:
+- Apple Silicon (macOS Darwin 25.6.0, Apple M4 Pro, 24 GB unified memory)
+- Python 3.11+ with `mlx==0.32.2` and `mlx-lm==0.31.3` (Note: `mlx` and `mlx-lm` are independently versioned packages and must not be assumed to share identical version strings).
+
+The clean-install audit verifies dataset validity, non-LLM baseline accuracy, and data-split generation. It does not download model weights or rerun Apple Silicon training or evaluation. Dry-run and safety tests confirm wrapper safety and syntax, not training reproduction.
 
 ## Safety and evaluation boundary
 
