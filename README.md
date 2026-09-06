@@ -26,11 +26,24 @@ python3 scripts/baseline.py
 # 3. Prepare isolated MLX dataset splits
 python3 scripts/prepare_mlx_data.py
 
-# 4. Run MLX evaluation on held-out test split
-python3 scripts/evaluate_mlx.py
+# 4. In an Apple-Silicon MLX environment, fetch the pinned model revision and
+#    create the 4-bit MLX directory
+scripts/prepare_mlx_model.sh
+
+# 5. Train the pinned experiment
+MLX_MODEL_DIR=/tmp/model-lab-mlx/qwen2.5-coder-1.5b \
+  MLX_ADAPTER_DIR=/tmp/model-lab-adapters \
+  scripts/train_mlx_lora.sh
+
+# 6. Evaluate the base model and adapter on the untouched test split
+python3 scripts/evaluate_mlx.py \
+  --model /tmp/model-lab-mlx/qwen2.5-coder-1.5b \
+  --adapter /tmp/model-lab-adapters
 ```
 
-See [`training-manifest.json`](training-manifest.json) and [`reports/training-run-2026-09-06.md`](reports/training-run-2026-09-06.md) for full configuration, loss progression, and detailed evaluation matrices.
+The model-preparation wrapper verifies the exact Hugging Face revision (`2e1fd397ee46e1388853d2af2c993145b0f1098a`) before converting it. The training wrapper copies only `train.jsonl` and `valid.jsonl` into the MLX training directory; `data/mlx/test.jsonl` is never passed to training. Set `HF_MODEL_DIR`, `MLX_MODEL_DIR`, `MLX_DATA_DIR`, `MLX_ADAPTER_DIR`, `MLX_ITERS`, `MLX_LEARNING_RATE`, and `MLX_SEED` to reproduce the run in another isolated workspace. The exact historical command and measured outputs are recorded in [`training-manifest.json`](training-manifest.json) and [`reports/training-run-2026-09-06.md`](reports/training-run-2026-09-06.md).
+
+The recorded run used `mlx`/`mlx_lm` 0.31.3 and a 4-bit conversion of the pinned Apache-2.0 Qwen revision. MLX and model weights are intentionally not committed; a clean reproduction must install the compatible MLX packages and download/convert that public revision before running the wrapper.
 
 ## Safety and evaluation boundary
 

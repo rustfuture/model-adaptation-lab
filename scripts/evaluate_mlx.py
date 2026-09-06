@@ -2,12 +2,20 @@ import json
 import os
 import statistics
 import time
+import argparse
 from pathlib import Path
 import mlx_lm
 
 ROOT = Path(__file__).resolve().parents[1]
-data_file = ROOT / "data" / "rust_errors.jsonl"
-artifacts = ROOT / "artifacts"
+parser = argparse.ArgumentParser(description="Evaluate a base MLX model and optional LoRA adapter on the held-out split.")
+parser.add_argument("--model", default="/tmp/model-lab-mlx/qwen2.5-coder-1.5b", help="Converted MLX model directory")
+parser.add_argument("--adapter", default="/tmp/model-lab-adapters", help="MLX LoRA adapter directory")
+parser.add_argument("--data", type=Path, default=ROOT / "data" / "rust_errors.jsonl", help="JSONL dataset")
+parser.add_argument("--output-dir", type=Path, default=ROOT / "artifacts", help="Directory for JSONL outputs and summary")
+args = parser.parse_args()
+
+data_file = args.data
+artifacts = args.output_dir
 artifacts.mkdir(exist_ok=True)
 
 records = [json.loads(line) for line in data_file.read_text().splitlines() if line.strip()]
@@ -24,8 +32,8 @@ system_prompt = (
     "Return a concise diagnosis and conservative fix strategy; do not claim to have compiled code."
 )
 
-model_path = "/tmp/model-lab-mlx/qwen2.5-coder-1.5b"
-adapter_path = "/tmp/model-lab-adapters"
+model_path = args.model
+adapter_path = args.adapter
 
 def evaluate_variant(use_adapter=False):
     desc = "mlx_lora_adapter" if use_adapter else "mlx_base_quantized"

@@ -16,4 +16,4 @@ correct = sum(STRATEGIES.get(record["error_code"]) == record["fix_strategy"] for
 print(f"baseline=deterministic_error_code_strategy")
 print(f"test_records={len(held_out)}")
 print(f"exact_strategy_accuracy={correct}/{len(held_out)}")
-print("interpretation=plumbing lower bound only; no model or fine-tuning was run")
+print("interpretation=deterministic plumbing lower bound; model and fine-tuning results are evaluated separately")
