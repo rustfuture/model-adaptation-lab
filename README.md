@@ -7,11 +7,11 @@ This repository contains the reproducible data contract, split validator, determ
 ## Current status
 
 - **Dataset**: 12 authored, synthetic Rust-error records; no customer or scraped private data.
-- **Split**: train/validation/test are strictly separated by error family (train: `parsing` and `indexing`, validation: `ownership`, test: `control_flow`) to eliminate near-duplicate leakage.
+- **Split**: train/validation/test are separated by the authored error-family labels (train: `parsing` and `indexing`, validation: `ownership`, test: `control_flow`). The validator checks all three split pairs. This reduces one source of overlap; it does not prove the absence of semantic duplicates or pretraining exposure.
 - **Base Model**: `Qwen/Qwen2.5-Coder-1.5B-Instruct` (Apache-2.0, commit `2e1fd397ee46e1388853d2af2c993145b0f1098a`), 4-bit quantized MLX format.
 - **Baseline**: deterministic error-code strategy classifier (1/3 exact match on held-out test).
 - **LoRA Training**: Completed locally via MLX (50 iters, rank 8, lr 1e-4, seed 42, peak memory 1.59 GB, duration 10.2s).
-- **Outcome & Negative Result**: Adapter successfully learned the concise two-line structural schema (`diagnosis: ...\nfix_strategy: ...`), reducing generation latency by 57% (p50 825 ms to 355 ms) due to eliminating conversational preamble. However, semantic generalization on unseen error families failed due to sample memorization (0/3 exact match, 0/3 keyword proxy vs 2/3 for base). Shorter latency on a failing output is not a general capability improvement; this negative generalization result is honestly documented.
+- **Outcome & Negative Result**: The recorded adapter produced shorter two-line answers but scored 0/3 on the held-out keyword proxy, compared with 2/3 for the base model. This tiny experiment did not demonstrate a quality gain. Shorter latency for incorrect answers is not a performance improvement, and the observations do not establish why the model failed.
 - **GPU/API spend**: $0.00.
 
 ## Reproducing the pipeline
@@ -74,7 +74,7 @@ Compiler text and repository code are treated as data, not instructions. Suggest
 
 The primary rationale behind this experiment is to isolate structural instruction following from semantic reasoning. 
 
-- **Data Split Rationale**: The dataset is intentionally split by *error family* (e.g., training on `indexing` and `parsing`, but evaluating on `control_flow`). This guarantees that a model cannot simply memorize the error text or code pattern. It must learn the *structural schema* (`diagnosis: ...\nfix_strategy: ...`) and apply it zero-shot to entirely new families.
-- **Metric Rationale**: The metrics measure *exact match* and *keyword coverage* separately. Exact match ensures strict format compliance (which reduces parsing errors in downstream agents), while keyword coverage serves as a proxy for semantic generalization.
-- **Synthetic Generation Rationale**: Using small, authored synthetic snippets instead of scraped GitHub data guarantees absolute lack of data-leakage during base-model pretraining. A script template `scripts/generate_synthetic_data.py` documents the schema expansion mechanism.
-- **Safety Boundaries**: The file protection limits inside `train_mlx_lora.sh` provide atomic runtime bounds because adapter output corruption has been observed to silently overwrite user datasets if unbounded paths are permitted.
+- **Data splits:** Family-disjoint partitions test transfer to different authored categories. They do not guarantee that the model learned a general schema or that similar examples were absent from pretraining.
+- **Metrics:** Exact string match and keyword coverage are narrow proxies, not format validation, compilation success, or semantic correctness. The corpus has only three held-out examples.
+- **Corpus export:** `python3 scripts/generate_synthetic_data.py` prints the existing validated corpus. The legacy filename is retained, but it does not generate new examples. Do not redirect it onto `data/rust_errors.jsonl`, because shell redirection would truncate the source before it is read. The snippets have not all been verified as standalone rustc fixtures.
+- **Safety boundaries:** Explicit run directories are claimed using exclusive creation. Failed acquisition never grants cleanup ownership. These filesystem checks are not an adversarial OS sandbox.
