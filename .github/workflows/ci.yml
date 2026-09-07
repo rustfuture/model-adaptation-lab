@@ -15,6 +15,7 @@ jobs:
       - run: pip install pyflakes
       - run: pyflakes scripts/
       - run: python3 scripts/validate_dataset.py
+      - run: python3 -m unittest discover -s tests -p 'test_dataset_contract.py'
       - run: python3 scripts/baseline.py
       - run: python3 scripts/prepare_mlx_data.py
       - run: ./tests/test_script_safety.sh

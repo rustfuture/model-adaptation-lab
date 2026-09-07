@@ -178,7 +178,11 @@ fi
 # --- ALL PRE-FLIGHT VALIDATIONS PASSED: NOW ALLOCATE RUN DIRECTORY ---
 if [[ -n "${MLX_RUN_ID:-}" ]]; then
   # run_id and base_run_dir were assigned and validated above
-  mkdir -p "$base_run_dir"
+  mkdir -p /tmp/model-lab-runs
+  if ! mkdir "$base_run_dir"; then
+    echo "Error: Run directory already exists or cannot be created; ownership was not acquired: $base_run_dir" >&2
+    exit 2
+  fi
 else
   mkdir -p /tmp/model-lab-runs
   base_run_dir="$(mktemp -d /tmp/model-lab-runs/run-XXXXXX)"
