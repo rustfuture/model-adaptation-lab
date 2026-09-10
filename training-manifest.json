@@ -27,6 +27,6 @@
     "fine_tuned_exact_match": "0/3",
     "fine_tuned_keyword_coverage": "0/3",
     "fine_tuned_p50_latency_ms": 355,
-    "findings": "Format adherence succeeded (strict 2-line diagnosis/fix_strategy without conversational fluff or unsolicited code snippets); generation latency decreased by 57%; but semantic generalization on held-out error families failed due to memorization of training samples (negative generalization result honestly reported)."
+    "findings": "Observed: the adapter produced concise two-line outputs and its p50 generation latency was lower (825 ms -> 355 ms). On the three held-out records the manual keyword coverage was 2/3 for the quantized base and 0/3 for the adapter; exact strategy string match was 0/3 for both. The experiment did not demonstrate a quality gain. The cause of the held-out failure is not established here; sample memorization is a hypothesis, not a demonstrated mechanism. Shorter latency on incorrect answers is not a performance improvement."
   }
 }
