@@ -55,13 +55,13 @@ The untouched 3-sample held-out test split was evaluated using `scripts/evaluate
 |---|---|---|---|
 | Exact Strategy Match | 0/3 (0%) | 0/3 (0%) | Neither model produced verbatim strategy string |
 | Keyword Coverage Proxy | 2/3 (66.7%) | 0/3 (0%) | Base model mentioned relevant keywords; adapter did not |
-| Latency p50 | 825 ms | 355 ms | **57% latency reduction** with adapter |
-| Latency max | 932 ms | 403 ms | Adapter consistently faster due to concise generation |
-| Output Format | Verbose conversational text with unsolicited code rewrites | **Strict 2-line target format** (`diagnosis: ...\nfix_strategy: ...`) | Adapter successfully learned structural format |
+| Latency p50 | 825 ms | 355 ms | Observed reduction; mechanism not isolated |
+| Latency max | 932 ms | 403 ms | Adapter outputs were shorter |
+| Output Format | Verbose conversational text with unsolicited code rewrites | Two-line `diagnosis: ...\nfix_strategy: ...` on the held-out records | Observed on 3 records |
 
 ## Technical Assessment & Negative Result
 
-1. **Format adherence was learned**: The base model answered conversationally with extensive explanations and unrequested markdown code blocks. The adapter reliably adhered to the concise, non-conversational `diagnosis: ...\nfix_strategy: ...` format without markdown fences.
-2. **Inference latency dropped sharply**: By constraining output verbosity to concise target lines, token count dropped and median generation latency fell from 825 ms to 355 ms.
-3. **Generalization failed across error families (Negative Result)**: Validation loss rose from 2.347 at step 10 to 3.695 at step 50 as train loss reached 0.159, indicating clear overfitting. On the held-out test set (representing the unseen `control_flow` family), the adapter recited phrases memorized from the indexing/borrowing training examples rather than generalizing.
-4. **Significance**: This establishes a verified, honest baseline. Adapting small models to complex semantic domains requires substantial family variety or few-shot retrieval grounding rather than 6-example parameter updates. This negative finding is recorded faithfully.
+1. **Format**: The adapter's held-out outputs followed the concise two-line format; the base model's did not. This is a narrow observation over three records, not a proof of general format learning.
+2. **Latency**: Median generation latency was 825 ms (base) vs 355 ms (adapter). Shorter output is a plausible explanation, but token counts were not measured, so the mechanism is not isolated.
+3. **Generalization failed across error families (Negative Result)**: Validation loss rose from 2.347 at step 10 to 3.695 at step 50 as train loss reached 0.159, which is consistent with overfitting. On the held-out `control_flow` family the base model's outputs contained the relevant keywords (2/3) while the adapter's did not (0/3), and neither matched the exact strategy string. This run does not establish the cause; memorization of training samples is a hypothesis, not a demonstrated mechanism, and three held-out records are too few to generalize.
+4. **Significance**: This is a small, honestly reported negative result. It suggests that adapting a small model to a semantic domain needs much more family variety or retrieval grounding, but it does not prove a general rule.
