@@ -4,18 +4,30 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install pyflakes
+      - run: python -m pip install --disable-pip-version-check --no-input "pyflakes==3.2.0"
+      - run: python -m pip check
       - run: pyflakes scripts/
       - run: python3 scripts/validate_dataset.py
+      - run: python3 scripts/validate_dataset.py --write-manifest "$RUNNER_TEMP/dataset-validation.json"
+      - run: diff -u evidence/dataset-validation.json "$RUNNER_TEMP/dataset-validation.json"
       - run: python3 -m unittest discover -s tests -p 'test_dataset_contract.py'
       - run: python3 scripts/baseline.py
       - run: python3 scripts/prepare_mlx_data.py
+      - run: git diff --exit-code -- data/mlx
+      - run: python3 scripts/verify_evidence.py --write-manifest "$RUNNER_TEMP/evidence-metadata.json"
+      - run: diff -u evidence/metadata.json "$RUNNER_TEMP/evidence-metadata.json"
       - run: ./tests/test_script_safety.sh

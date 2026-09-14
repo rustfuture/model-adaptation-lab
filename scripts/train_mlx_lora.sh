@@ -217,6 +217,10 @@ mkdir -p "$adapter_dir"
 python3 "$repo_root/scripts/prepare_mlx_data.py" >/dev/null
 cp "$repo_root/data/mlx/train.jsonl" "$data_dir/train.jsonl"
 cp "$repo_root/data/mlx/valid.jsonl" "$data_dir/valid.jsonl"
+if [[ -e "$data_dir/test.jsonl" || -L "$data_dir/test.jsonl" ]]; then
+  echo "Error: Test split must remain outside the training data directory: $data_dir/test.jsonl" >&2
+  exit 2
+fi
 
 echo "Running MLX LoRA training in isolated directory: $adapter_dir"
 "$mlx_lora_bin" \
@@ -236,11 +240,42 @@ echo "Running MLX LoRA training in isolated directory: $adapter_dir"
   --seed "${MLX_SEED:-42}" \
   --max-seq-length 512
 
+# A successful process exit is not sufficient evidence of an adapter. Refuse
+# to publish a completed manifest unless MLX emitted the expected weight file.
+if [[ ! -s "$adapter_dir/adapters.safetensors" ]]; then
+  echo "Error: MLX training finished without a non-empty adapters.safetensors file: $adapter_dir" >&2
+  echo "Refusing to write a completed run manifest without adapter weights." >&2
+  exit 2
+fi
+
 # Write run manifest for subsequent evaluation
 manifest_file="$base_run_dir/run_manifest.json"
 python3 -c "
-import json, time, sys
+import hashlib, importlib.metadata, json, os, platform, sys, time
+from pathlib import Path
+
+repo_root = Path(sys.argv[8])
+dataset_path = repo_root / 'data' / 'rust_errors.jsonl'
+dataset_bytes = dataset_path.read_bytes()
+records = [json.loads(line) for line in dataset_bytes.decode('utf-8').splitlines() if line.strip()]
+split_records = {split: [r for r in records if r['split'] == split] for split in ('train', 'validation', 'test')}
+def package_version(name):
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return 'not_available'
+
+adapter_root = Path(sys.argv[4])
+weight_files = []
+for path in sorted(adapter_root.rglob('*')):
+    if path.is_file() and not path.is_symlink():
+        weight_files.append({
+            'path': path.relative_to(adapter_root).as_posix(),
+            'size_bytes': path.stat().st_size,
+            'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+        })
 manifest = {
+    'schema_version': 'model-adaptation-lab.run-manifest.v1',
     'run_id': sys.argv[1],
     'timestamp_iso': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
     'model_dir': sys.argv[2],
@@ -248,12 +283,31 @@ manifest = {
     'adapter_dir': sys.argv[4],
     'iters': int(sys.argv[5]),
     'learning_rate': float(sys.argv[6]),
-    'fine_tune_type': 'lora'
+    'fine_tune_type': 'lora',
+    'seed': int(os.environ.get('MLX_SEED', '42')),
+    'base_model_revision': os.environ.get('MODEL_REVISION'),
+    'dataset': {
+        'path': 'data/rust_errors.jsonl',
+        'sha256': hashlib.sha256(dataset_bytes).hexdigest(),
+        'split_counts': {split: len(rows) for split, rows in split_records.items()},
+        'split_record_ids': {split: [r['id'] for r in rows] for split, rows in split_records.items()},
+        'training_data_policy': 'Only train and validation records are copied; test remains held out.',
+    },
+    'environment': {
+        'python_version': platform.python_version(),
+        'platform': platform.platform(),
+        'mlx_version': package_version('mlx'),
+        'mlx_lm_version': package_version('mlx-lm'),
+    },
+    'artifacts': {
+        'adapter_weights': weight_files,
+        'adapter_weights_preserved_in_run_dir': True,
+    },
 }
 with open(sys.argv[7], 'w', encoding='utf-8') as f:
     json.dump(manifest, f, indent=2)
 print(f'Wrote run manifest: {sys.argv[7]}')
-" "$run_id" "$model_canon" "$data_canon" "$adapter_canon" "${MLX_ITERS:-50}" "${MLX_LEARNING_RATE:-1e-4}" "$manifest_file"
+" "$run_id" "$model_canon" "$data_canon" "$adapter_canon" "${MLX_ITERS:-50}" "${MLX_LEARNING_RATE:-1e-4}" "$manifest_file" "$repo_root"
 
 echo "Training complete. Run manifest generated at: $manifest_file"
 

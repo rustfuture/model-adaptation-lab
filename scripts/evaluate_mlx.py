@@ -10,6 +10,8 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+from validate_dataset import build_manifest, validate_records
 
 REQUIRED_RECORD_FIELDS = [
     "id",
@@ -102,7 +104,11 @@ def parse_adapter_metadata(adapter_dir: Path) -> dict:
         "iters": data.get("iters"),
         "learning_rate": data.get("learning_rate"),
         "batch_size": data.get("batch_size"),
-        "model_in_config": data.get("model"),
+        "model_in_config": (
+            portable_path(Path(data["model"]))
+            if isinstance(data.get("model"), str) and data["model"].startswith("/")
+            else data.get("model")
+        ),
     }
 
 
@@ -128,6 +134,24 @@ def compute_sha256(path: Path) -> str:
     if not path.is_file():
         return "not_found"
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def portable_path(path: Path) -> str:
+    """Keep generated reports shareable without leaking a local username."""
+    try:
+        return path.resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return f"external:{path.name}"
+
+
+def portable_args(args):
+    result = []
+    for value in args:
+        if value.startswith("/"):
+            result.append(portable_path(Path(value)))
+        else:
+            result.append(value)
+    return result
 
 
 def main():
@@ -182,6 +206,9 @@ def main():
     args = parser.parse_args()
 
     # 1. Dataset validation
+    if args.data.is_symlink():
+        print(f"Error: Dataset path cannot be a symlink: {args.data}", file=sys.stderr)
+        sys.exit(2)
     data_file = args.data.resolve()
     if not data_file.is_file():
         print(f"Error: Dataset file not found: {data_file}", file=sys.stderr)
@@ -217,11 +244,20 @@ def main():
                 )
                 sys.exit(2)
 
+    try:
+        validate_records(raw_lines)
+    except ValueError as error:
+        print(f"Error: Dataset contract validation failed: {error}", file=sys.stderr)
+        sys.exit(2)
+
     # 2. Resolve model and adapter paths (considering manifest)
     model_path = args.model
     adapter_path = args.adapter
 
     if args.manifest:
+        if args.manifest.is_symlink():
+            print(f"Error: Run manifest cannot be a symlink: {args.manifest}", file=sys.stderr)
+            sys.exit(2)
         manifest_path = args.manifest.resolve()
         if not manifest_path.is_file():
             print(f"Error: Run manifest not found: {manifest_path}", file=sys.stderr)
@@ -245,6 +281,9 @@ def main():
         if default_candidate.exists():
             adapter_path = default_candidate
 
+    if model_path.is_symlink():
+        print(f"Error: MLX model directory cannot be a symlink: {model_path}", file=sys.stderr)
+        sys.exit(2)
     model_path = model_path.resolve()
     if not model_path.is_dir():
         print(f"Error: MLX model directory not found: {model_path}", file=sys.stderr)
@@ -256,6 +295,9 @@ def main():
                 "Error: No adapter specified. Provide --adapter <path>, --manifest <path>, or use --baseline-only.",
                 file=sys.stderr,
             )
+            sys.exit(2)
+        if adapter_path.is_symlink():
+            print(f"Error: MLX adapter directory cannot be a symlink: {adapter_path}", file=sys.stderr)
             sys.exit(2)
         adapter_path = adapter_path.resolve()
         if not adapter_path.is_dir():
@@ -443,27 +485,28 @@ def main():
         "git_commit": git_info["commit"],
         "git_dirty": git_info["is_dirty"],
         "evaluator": {
-            "path": str(evaluator_file),
+            "path": portable_path(evaluator_file),
             "sha256": evaluator_sha256,
         },
         "invocation": {
-            "command": " ".join(sys.argv),
-            "args": sys.argv[1:],
+            "command": " ".join(["python3", portable_path(evaluator_file), *portable_args(sys.argv[1:])]),
+            "args": portable_args(sys.argv[1:]),
         },
         "environment": runtime_env,
         "dataset": {
-            "path": str(data_file),
+            "path": portable_path(data_file),
             "sha256": data_sha256,
             "total_records": len(raw_lines),
             "held_out_records": len(held_out),
+            "split_manifest": build_manifest(raw_lines, data_bytes),
         },
         "model": {
-            "path": str(model_path),
+            "path": portable_path(model_path),
             "config_sha256": compute_sha256(model_cfg_path),
             "metadata": parse_model_metadata(model_path),
         },
         "adapter": ({
-            "path": str(adapter_path),
+            "path": portable_path(adapter_path),
             "config_sha256": compute_sha256(adapter_cfg_path) if adapter_cfg_path else "none",
             "metadata": parse_adapter_metadata(adapter_path),
         } if adapter_path else None) if not args.baseline_only else None,

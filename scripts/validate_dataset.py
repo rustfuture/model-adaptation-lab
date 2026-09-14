@@ -1,5 +1,6 @@
 import hashlib
 import json
+import argparse
 from itertools import combinations
 from pathlib import Path
 
@@ -35,19 +36,86 @@ def validate_records(records):
     return families
 
 
+def build_manifest(records, data_bytes):
+    """Return portable, deterministic evidence for the dataset contract."""
+    split_records = {
+        split: [record for record in records if record["split"] == split]
+        for split in sorted(ALLOWED_SPLITS)
+    }
+    split_ids = {
+        split: [record["id"] for record in rows]
+        for split, rows in split_records.items()
+    }
+    split_families = {
+        split: sorted({record["family"] for record in rows})
+        for split, rows in split_records.items()
+    }
+    # Hash canonical record IDs rather than absolute paths or platform-specific
+    # line endings. The complete dataset hash below still covers the source file.
+    split_hashes = {
+        split: hashlib.sha256(
+            ("\n".join(split_ids[split]) + "\n").encode("utf-8")
+        ).hexdigest()
+        for split in split_ids
+    }
+    return {
+        "schema_version": "model-adaptation-lab.dataset-validation.v1",
+        "dataset": "data/rust_errors.jsonl",
+        "dataset_sha256": hashlib.sha256(data_bytes).hexdigest(),
+        "records": len(records),
+        "split_counts": {split: len(rows) for split, rows in split_records.items()},
+        "split_families": split_families,
+        "split_record_ids": split_ids,
+        "split_record_id_sha256": split_hashes,
+        "family_disjoint": True,
+        "test_holdout_record_ids": split_ids["test"],
+    }
+
+
+def read_dataset(path=DATA):
+    data_bytes = path.read_bytes()
+    records = [
+        json.loads(line)
+        for line in data_bytes.decode("utf-8").splitlines()
+        if line.strip()
+    ]
+    return records, data_bytes
+
+
 def main():
-    data = DATA.read_bytes()
-    records = [json.loads(line) for line in data.decode().splitlines() if line.strip()]
+    parser = argparse.ArgumentParser(description="Validate the authored dataset split contract.")
+    parser.add_argument(
+        "--write-manifest",
+        type=Path,
+        help="Write deterministic split evidence to this file after validation.",
+    )
+    args = parser.parse_args()
+
     try:
-        families = validate_records(records)
+        records, data = read_dataset()
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise SystemExit(f"failed to read dataset: {error}") from error
+    try:
+        validate_records(records)
     except ValueError as error:
         raise SystemExit(str(error)) from error
+    manifest = build_manifest(records, data)
+    # Preserve the concise legacy field names in stdout while exposing the
+    # complete machine-readable manifest to callers that need split proof.
     print(json.dumps({
-        "records": len(records),
-        "counts": {split: sum(r["split"] == split for r in records) for split in sorted(ALLOWED_SPLITS)},
-        "families": {split: sorted(values) for split, values in sorted(families.items())},
-        "sha256": hashlib.sha256(data).hexdigest(),
+        "records": manifest["records"],
+        "counts": manifest["split_counts"],
+        "families": manifest["split_families"],
+        "sha256": manifest["dataset_sha256"],
     }, indent=2))
+
+    if args.write_manifest:
+        target = args.write_manifest
+        if target.is_symlink() or target.resolve() == DATA.resolve():
+            raise SystemExit("manifest destination cannot be a symlink or the source dataset")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote dataset manifest: {target}")
 
 
 if __name__ == "__main__":

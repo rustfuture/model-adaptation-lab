@@ -128,6 +128,16 @@ set -e
 [[ "$out" == *"cannot be inside or contain the repository root"* ]] || { echo "[FAIL] unexpected repo root error: $out"; exit 1; }
 echo "[PASS] Root, HOME, and repo-root guards verified."
 
+set +e
+out=$(MODEL_REVISION="main" bash "$repo_root/scripts/prepare_mlx_model.sh" 2>&1)
+code=$?
+set -e
+[[ $code -ne 0 ]] || { echo "[FAIL] prepare_mlx_model.sh should reject unpinned revisions"; exit 1; }
+[[ "$out" == *"must be a full 40-character hexadecimal commit SHA"* ]] || {
+  echo "[FAIL] unexpected unpinned revision error: $out"; exit 1;
+}
+echo "[PASS] Full commit-SHA pinning enforced for model preparation."
+
 # 3. Test: Existing non-empty destination rejection (No destructive deletion)
 existing_nonempty="$test_sandbox/existing_model"
 mkdir -p "$existing_nonempty"
@@ -465,7 +475,8 @@ lines.append({
     'compiler_error': 'novel compiler error',
     'code': 'fn test() {}',
     'diagnosis': 'novel diagnosis',
-    'fix_strategy': 'novel fix'
+    'fix_strategy': 'novel fix',
+    'expected_change': 'novel change'
 })
 with open('$dataset_with_unknown', 'w') as f:
     for item in lines:
@@ -601,4 +612,20 @@ print('[PASS] End-to-end mock train -> run manifest -> evaluation verified.')
 # Clean up the specific pipeline run directory created for this test
 rm -rf "/tmp/model-lab-runs/$unique_pipeline_run_id"
 
-echo "=== All 21 MLX safety, regression, isolation, concurrency, and evaluator tests passed successfully ==="
+# 17. Test: a zero-exit trainer that emits no adapter cannot publish a manifest
+no_weights_run_id="no_weights_${$}_${RANDOM}"
+set +e
+MLX_LM_LORA_BIN="/usr/bin/true" \
+MLX_MODEL_DIR="$mock_model" \
+MLX_RUN_ID="$no_weights_run_id" \
+bash "$repo_root/scripts/train_mlx_lora.sh" >/dev/null 2>&1
+no_weights_exit=$?
+set -e
+[[ $no_weights_exit -eq 2 ]] || { echo "[FAIL] Training without adapter weights must fail closed"; exit 1; }
+[[ ! -e "/tmp/model-lab-runs/$no_weights_run_id/run_manifest.json" ]] || {
+  echo "[FAIL] Training without adapter weights wrote a completed manifest"; exit 1;
+}
+[[ ! -d "/tmp/model-lab-runs/$no_weights_run_id" ]] || { echo "[FAIL] Failed run directory was not cleaned"; exit 1; }
+echo "[PASS] Missing adapter weights fail closed without publishing metadata."
+
+echo "=== All MLX safety, regression, isolation, concurrency, and evaluator tests passed successfully ==="

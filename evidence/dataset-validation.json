@@ -1,0 +1,54 @@
+{
+  "schema_version": "model-adaptation-lab.dataset-validation.v1",
+  "dataset": "data/rust_errors.jsonl",
+  "dataset_sha256": "bd488f5826fdae9e8fab7ad0911534fad96757bdd7cb99c45103870f68392d05",
+  "records": 12,
+  "split_counts": {
+    "test": 3,
+    "train": 6,
+    "validation": 3
+  },
+  "split_families": {
+    "test": [
+      "control_flow"
+    ],
+    "train": [
+      "indexing",
+      "parsing"
+    ],
+    "validation": [
+      "ownership"
+    ]
+  },
+  "split_record_ids": {
+    "test": [
+      "test-control-001",
+      "test-control-002",
+      "test-control-003"
+    ],
+    "train": [
+      "train-index-001",
+      "train-index-002",
+      "train-index-003",
+      "train-parse-001",
+      "train-parse-002",
+      "train-parse-003"
+    ],
+    "validation": [
+      "val-borrow-001",
+      "val-borrow-002",
+      "val-borrow-003"
+    ]
+  },
+  "split_record_id_sha256": {
+    "test": "460ee7702f2399052848315467251810b8c9ebd0e102cfcfa33592cf8fab527a",
+    "train": "6da38e5b223a9058b6b1d6319d4e47d3e03811780d6189c2dadd036d0a513807",
+    "validation": "d5e41d4dcbbbc791ee8ce0b22e377af80143424ecd4c203163f76017c1306968"
+  },
+  "family_disjoint": true,
+  "test_holdout_record_ids": [
+    "test-control-001",
+    "test-control-002",
+    "test-control-003"
+  ]
+}

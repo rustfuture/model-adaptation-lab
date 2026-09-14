@@ -19,4 +19,6 @@ The candidate is suitable for a small prompt baseline and a possible adapter exp
 - Current spend: $0.
 - Do not start hosted inference or rented GPU without a concrete budget entry.
 - Stop local work if memory pressure, unacceptable latency, or poor held-out behavior makes the experiment less useful than the deterministic baseline.
-- Fine-tuning remains unclaimed until a reproducible training command completes and a separate untouched test result is recorded.
+- A historical fine-tuning run and separate untouched test result are recorded, but reusable fine-tuning
+  remains unclaimed because the adapter weights were not preserved. See
+  [`negative-result.md`](negative-result.md) and [`evidence/metadata.json`](../evidence/metadata.json).
