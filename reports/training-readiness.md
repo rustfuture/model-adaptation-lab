@@ -11,8 +11,9 @@ correctly not treated as a fine-tuning checkpoint.
 
 The gate required an exact model revision, a compatible training path, package
 versions, resource measurements, and a family-disjoint train/validation/test
-manifest. Those requirements were subsequently met by the pinned MLX LoRA run:
+manifest. Those requirements were met for the historical pinned MLX LoRA run:
 see [`training-manifest.json`](../training-manifest.json),
 [`scripts/train_mlx_lora.sh`](../scripts/train_mlx_lora.sh), and the held-out
-evaluation report. The $0 spend ceiling and no-hosted-GPU boundary remain in
-force.
+evaluation report. The adapter and base weights were not retained, so this
+repository records the run and its raw outputs but does not claim full training
+reproduction. The $0 spend ceiling and no-hosted-GPU boundary remain in force.

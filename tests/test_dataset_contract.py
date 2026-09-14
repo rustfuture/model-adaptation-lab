@@ -10,7 +10,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from validate_dataset import DATA, validate_records
+from validate_dataset import DATA, build_manifest, validate_records
 
 
 class DatasetContractTests(unittest.TestCase):
@@ -44,6 +44,30 @@ class DatasetContractTests(unittest.TestCase):
         self.assertEqual(exported, self.records)
         self.assertEqual(DATA.read_bytes(), before)
         validate_records(exported)
+
+    def test_mlx_exports_are_exact_split_projections(self):
+        expected = {
+            split: {record["id"] for record in self.records if record["split"] == split}
+            for split in ("train", "validation", "test")
+        }
+        paths = {
+            "train": ROOT / "data" / "mlx" / "train.jsonl",
+            "validation": ROOT / "data" / "mlx" / "valid.jsonl",
+            "test": ROOT / "data" / "mlx" / "test.jsonl",
+        }
+        actual = {}
+        for split, path in paths.items():
+            rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+            actual[split] = {row["id"] for row in rows}
+            self.assertEqual(actual[split], expected[split])
+            self.assertEqual(len(rows), len(actual[split]))
+        self.assertTrue(actual["test"].isdisjoint(actual["train"] | actual["validation"]))
+
+    def test_tracked_dataset_manifest_matches_source(self):
+        manifest_path = ROOT / "evidence" / "dataset-validation.json"
+        manifest = json.loads(manifest_path.read_text())
+        expected = build_manifest(self.records, DATA.read_bytes())
+        self.assertEqual(manifest, expected)
 
     def test_existing_empty_run_is_not_owned_or_removed(self):
         run_id = "ownership_test_" + uuid.uuid4().hex

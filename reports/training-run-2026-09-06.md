@@ -1,8 +1,8 @@
-# Local LoRA Training Run — 2026-09-06
+# Local LoRA Training Run — 2026-09-06 (historical record)
 
 ## Summary
 
-A real local LoRA adaptation experiment was performed on Apple Silicon using MLX without cloud GPU or API spend. The adapter was trained on the authored synthetic Rust error dataset and evaluated against the held-out test split.
+A local LoRA adaptation experiment was recorded on Apple Silicon using MLX without cloud GPU or API spend. The adapter was trained on the authored synthetic Rust error dataset and evaluated against the held-out test split. This checkout preserves the observations and raw outputs, not the model or adapter weights; the run is not fully reproducible without those external artifacts.
 
 ## Execution Environment & Hardware
 
@@ -45,7 +45,7 @@ A real local LoRA adaptation experiment was performed on Apple Silicon using MLX
   - Iter 30: Val loss 3.671, Train loss 0.326
   - Iter 40: Val loss 3.377, Train loss 0.365
   - Iter 50: Val loss 3.695, Train loss 0.159
-- **Artifacts**: Weights saved to `/tmp/model-lab-adapters/adapters.safetensors` (excluded from git tracking per rule).
+- **Artifacts**: The training process emitted weights at `/tmp/model-lab-adapters/adapters.safetensors` during the historical run. They were not retained or committed; no adapter hash is available and the current checkout contains no model/adapter weights.
 
 ## Held-Out Test Evaluation
 
@@ -65,3 +65,8 @@ The untouched 3-sample held-out test split was evaluated using `scripts/evaluate
 2. **Latency**: Median generation latency was 825 ms (base) vs 355 ms (adapter). Shorter output is a plausible explanation, but token counts were not measured, so the mechanism is not isolated.
 3. **Generalization failed across error families (Negative Result)**: Validation loss rose from 2.347 at step 10 to 3.695 at step 50 as train loss reached 0.159, which is consistent with overfitting. On the held-out `control_flow` family the base model's outputs contained the relevant keywords (2/3) while the adapter's did not (0/3), and neither matched the exact strategy string. This run does not establish the cause; memorization of training samples is a hypothesis, not a demonstrated mechanism, and three held-out records are too few to generalize.
 4. **Significance**: This is a small, honestly reported negative result. It suggests that adapting a small model to a semantic domain needs much more family variety or retrieval grounding, but it does not prove a general rule.
+
+The reproducible split and raw-output metadata are in
+[`evidence/dataset-validation.json`](../evidence/dataset-validation.json) and
+[`evidence/metadata.json`](../evidence/metadata.json). The dedicated claim-boundary report is
+[`negative-result.md`](negative-result.md).

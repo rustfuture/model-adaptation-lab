@@ -10,6 +10,11 @@ hf_model_dir="${HF_MODEL_DIR:-/tmp/model-lab-hf/qwen2.5-coder-1.5b-instruct}"
 mlx_model_dir="${MLX_MODEL_DIR:-/tmp/model-lab-mlx/qwen2.5-coder-1.5b}"
 mlx_convert_bin="${MLX_CONVERT_BIN:-mlx_lm.convert}"
 
+if [[ ! "$model_revision" =~ ^[0-9a-fA-F]{40}$ ]]; then
+  echo "Error: MODEL_REVISION must be a full 40-character hexadecimal commit SHA: $model_revision" >&2
+  exit 2
+fi
+
 canonical_path() {
   python3 -c "import os, sys; print(os.path.realpath(os.path.abspath(sys.argv[1])))" "$1"
 }

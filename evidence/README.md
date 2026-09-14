@@ -2,7 +2,8 @@
 
 This directory records what is preserved for the recorded model-adaptation experiment and what is not.
 It contains no secrets and no model weights. `evidence/raw/` holds verbatim, unmodified copies of the
-small text outputs; nothing there was regenerated.
+small text outputs; nothing there was regenerated. Deterministic metadata is maintained in
+[`dataset-validation.json`](dataset-validation.json) and [`metadata.json`](metadata.json).
 
 ## Data
 
@@ -11,20 +12,25 @@ small text outputs; nothing there was regenerated.
 - Dataset SHA-256: `bd488f5826fdae9e8fab7ad0911534fad96757bdd7cb99c45103870f68392d05`
 - Splits: family-disjoint (train: `parsing`, `indexing`; validation: `ownership`; test: `control_flow`).
 - Test hold-out: 3 records.
+- Split record IDs and per-split ID hashes are preserved in
+  [`dataset-validation.json`](dataset-validation.json). The evaluator now validates the same full
+  split contract before loading a model.
 
 ## Model
 
 - Base: `Qwen/Qwen2.5-Coder-1.5B-Instruct`, Apache-2.0.
 - Pinned revision: `2e1fd397ee46e1388853d2af2c993145b0f1098a`.
-- The 4-bit MLX weights are not committed (large, redistributed separately under the upstream license).
+- The 4-bit MLX weights are not present in this checkout (large, redistributed separately under the
+  upstream license); no base-weight hash is available here.
 
 ## Adapter
 
 - Configuration: LoRA, 50 iterations, rank 8, scale 20.0, learning rate 1e-4, batch size 1, seed 42,
   4-bit MLX, prompt masking enabled.
-- **Not preserved**: the adapter weights lived under `/tmp/model-lab-adapters/` and were not retained, so
-  no adapter hash is available. The training configuration is recorded in `training-manifest.json`.
-- Re-evaluation is reproducible from the preserved raw outputs in `evidence/raw/`. Full training
+- **Not preserved**: the adapter weights were emitted under `/tmp/model-lab-adapters/` during the
+  historical run but were not retained, so no adapter hash is available. The training configuration
+  and this explicit claim boundary are recorded in `training-manifest.json`.
+- Metric recomputation is reproducible from the preserved raw outputs in `evidence/raw/`. Full training
   reproduction is **not** claimed: the adapter weights are gone, so the trained adapter cannot be
   rebuilt or hash-verified from this repository.
 
@@ -62,13 +68,12 @@ dataset `bd488f5826fdae9e8fab7ad0911534fad96757bdd7cb99c45103870f68392d05` and b
 
 ### Not preserved
 
-- `artifacts/mlx-evaluation-report.json` (local SHA-256
-  `4b33e564575bbaa4bd1f522465d3fa6a51dd07155b16431346dadab6639c10be`) is **not preserved**. It embeds
-  absolute local filesystem paths (`/Users/macintosh/...`) in its `artifact` fields, which fail the
-  no-personal-paths shareability bar. Its numbers are independently recomputed below and match.
-- All four local `artifacts/` files match `.gitignore` line 4 (`artifacts/`), were never tracked, and
-  return HTTP 404 from the GitHub contents API; they are local-only. The two MLX raw outputs and the
-  Ollama baseline were the shareable ones and are copied above.
+- `artifacts/mlx-evaluation-report.json` is **not preserved** because it is generated output. The
+  evaluator now emits portable repository-relative/external path labels, and its metrics are represented
+  by the tracked metadata manifest below.
+- Local `artifacts/` files are ignored generated output and are not part of the public evidence package.
+  The two MLX raw outputs and the Ollama baseline are the preserved, shareable copies under
+  `evidence/raw/`.
 
 ## Results (independently recomputed)
 
@@ -83,7 +88,7 @@ match flags were not stored in them, so they are re-derived from the response an
 | Base (MLX 4-bit) | 0/3 | 2/3 | 825 ms | 932 ms |
 | LoRA adapter (MLX 4-bit) | 0/3 | 0/3 | 355 ms | 403 ms |
 
-These match `training-manifest.json`, the repository `README.md`, `reports/training-run-2026-09-06.md`,
+These match [`metadata.json`](metadata.json), `training-manifest.json`, the repository `README.md`, `reports/training-run-2026-09-06.md`,
 and the unpreserved `artifacts/mlx-evaluation-report.json`. The deterministic non-LLM baseline is
 1/3 exact strategy match (`python3 scripts/baseline.py`).
 
@@ -91,6 +96,10 @@ and the unpreserved `artifacts/mlx-evaluation-report.json`. The deterministic no
   and 0/3 exact strategy match for both variants.
 - Shorter latency on incorrect answers is not a quality improvement. The cause of the held-out failure
   is not established by this experiment.
+
+Run `python3 scripts/verify_evidence.py` to validate every preserved output against the test IDs,
+expected fields, hashes, and metric definitions without loading model weights or calling a service. The
+narrative claim boundary is in [`reports/negative-result.md`](../reports/negative-result.md).
 
 ## Environment
 
