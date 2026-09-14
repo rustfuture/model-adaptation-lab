@@ -80,7 +80,7 @@ The primary rationale behind this experiment is to isolate structural instructio
 
 - **Data splits:** Family-disjoint partitions test transfer to different authored categories. They do not guarantee that the model learned a general schema or that similar examples were absent from pretraining.
 - **Metrics:** Exact string match and keyword coverage are narrow proxies, not format validation, compilation success, or semantic correctness. The corpus has only three held-out examples.
-- **Corpus export:** `python3 scripts/generate_synthetic_data.py` prints the existing validated corpus. The legacy filename is retained, but it does not generate new examples. Do not redirect it onto `data/rust_errors.jsonl`, because shell redirection would truncate the source before it is read. The snippets have not all been verified as standalone rustc fixtures.
+- **Corpus export:** `python3 scripts/generate_synthetic_data.py` prints the existing validated corpus. The legacy filename is retained, but it does not generate new examples. Do not redirect it onto `data/rust_errors.jsonl`, because shell redirection would truncate the source before it is read. `python3 scripts/validate_rustc_snippets.py` compiles all 12 snippets as standalone Rust 2021 binaries and requires each declared diagnostic code in stderr; CI runs this validation.
 - **Safety boundaries:** Explicit run directories are claimed using exclusive creation. Failed acquisition never grants cleanup ownership. These filesystem checks are not an adversarial OS sandbox.
 
 ### Public evidence and negative result
