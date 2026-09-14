@@ -22,6 +22,7 @@ jobs:
       - run: python -m pip check
       - run: pyflakes scripts/
       - run: python3 scripts/validate_dataset.py
+      - run: python3 scripts/validate_rustc_snippets.py
       - run: python3 scripts/validate_dataset.py --write-manifest "$RUNNER_TEMP/dataset-validation.json"
       - run: diff -u evidence/dataset-validation.json "$RUNNER_TEMP/dataset-validation.json"
       - run: python3 -m unittest discover -s tests -p 'test_dataset_contract.py'
