@@ -90,3 +90,21 @@ The tracked raw outputs, hashes, metric definitions, unavailable-weight status, 
 result are summarized in [`evidence/metadata.json`](evidence/metadata.json); the narrative is in
 [`reports/negative-result.md`](reports/negative-result.md). The historical run is evidence of what was
 observed locally, not a redistributable model or reusable adapter checkpoint.
+
+## V2 Reproducible Experiment
+
+The repository has been upgraded with a versioned `v2` reproducible experiment path.
+
+### Execution
+Run the full automated v2 pipeline:
+```bash
+./scripts/run_v2_experiment.sh
+```
+
+If the MLX model weights are unavailable or taking too long to download, the script will gracefully exit and report the run as blocked, rather than faking outputs.
+
+### Key Improvements in V2:
+* **Stronger Executable Evaluation**: `evaluate_mlx_v2.py` isolates the model-produced rust code, saves it into a temporary fixture, formats it with `rustfmt`, and checks syntax and compilation success with `rustc`. Compilation success is NOT semantic or behavioral correctness. (No behavioral tests exist in this dataset).
+* **Dataset Upgrades**: `data/rust_errors_v2.jsonl` contains explicit `fixed_code` blocks for end-to-end verification.
+* **Deterministic Verification**: `validate_rustc_snippets_v2.py` validates that BOTH the original snippet throws the expected error AND the fixed snippet compiles without errors.
+* **Separation of History**: Historical v1 evidence is preserved perfectly. The v2 scripts (`_v2` appended) safely operate on the upgraded pipeline.
