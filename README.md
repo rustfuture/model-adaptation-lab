@@ -1,110 +1,193 @@
-# Model Adaptation Lab
+<p align="center">
+  <h1 align="center">Model Adaptation Lab</h1>
+  <p align="center">
+    Reproducible model adaptation — including the negative result. An evidence-first
+    experiment on structured Rust compiler-error explanations.
+  </p>
+</p>
 
-An evidence-first experiment for adapting a small model to structured Rust compiler-error explanations and conservative fix suggestions.
+<p align="center">
+  <a href="https://github.com/rustfuture/model-adaptation-lab/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rustfuture/model-adaptation-lab/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square">
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square"></a>
+  <a href="https://colab.research.google.com/github/rustfuture/model-adaptation-lab/blob/main/notebooks/validation_colab.ipynb"><img alt="Open validation in Colab" src="https://colab.research.google.com/assets/colab-badge.svg"></a>
+</p>
 
-This repository contains the reproducible data contract, split validator, deterministic non-LLM baseline, and local MLX LoRA training and evaluation pipeline. All training and evaluation runs were conducted locally on an Apple M4 Pro (24 GB unified memory) with zero cloud GPU or API spend.
+<p align="center">
+  <a href="#status">Status</a> ·
+  <a href="#experiment-flow">Flow</a> ·
+  <a href="#what-was-run">What Was Run</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#correctness-levels">Correctness</a> ·
+  <a href="#limitations">Limitations</a>
+</p>
 
-## Current status
+<p align="center"><em>Colab runs dataset-contract and evidence validation only — not MLX training.</em></p>
+
+This repository contains a reproducible data contract, split validator, deterministic
+non-LLM baseline, and a local Apple-Silicon MLX LoRA training and evaluation pipeline for
+structured Rust compiler-error explanations. All recorded runs were done locally on an
+Apple M4 Pro (24 GB) with **zero cloud GPU or API spend**. The historical run produced a
+negative result, and that result is preserved rather than hidden.
+
+## Status
+
+| Experiment | State |
+|---|---|
+| Historical v1 | Negative result preserved |
+| Dataset contract | Verified |
+| v2 pipeline | Implemented |
+| Executable Rust evaluation | Implemented |
+| Behavioral correctness | Not claimed |
+| Full v2 model training | Runtime-dependent (Apple Silicon MLX; weights not in checkout) |
+
+## Experiment Flow
+
+```mermaid
+flowchart TD
+    C[Authored Rust-error corpus - 12 records] --> S[Family-disjoint split validation]
+    S --> P[MLX data preparation]
+    P --> T[Local MLX LoRA training - Apple Silicon]
+    T --> E[Quantized-base vs adapter evaluation]
+    E --> R[v2: rustfmt + rustc compile check]
+    R --> M[Evidence manifests + negative result]
+```
+
+## What Was Run
 
 - **Dataset**: 12 authored, synthetic Rust-error records; no customer or scraped private data.
-- **Split**: train/validation/test are separated by the authored error-family labels (train: `parsing` and `indexing`, validation: `ownership`, test: `control_flow`). The validator checks all three split pairs. This reduces one source of overlap; it does not prove the absence of semantic duplicates or pretraining exposure.
-- **Base Model**: Historical run used `Qwen/Qwen2.5-Coder-1.5B-Instruct` (Apache-2.0, commit `2e1fd397ee46e1388853d2af2c993145b0f1098a`) in 4-bit quantized MLX format; weights are not present in this checkout.
-- **Baseline**: deterministic error-code strategy classifier (1/3 exact match on held-out test).
-- **LoRA Training**: A historical local MLX run was recorded (50 iters, rank 8, lr 1e-4, seed 42, peak memory 1.59 GB, duration 10.2s). The base and adapter weights are not present in this checkout; no adapter hash or full training reproduction is claimed.
-- **Outcome & Negative Result**: The recorded adapter produced shorter two-line answers but scored 0/3 on the held-out keyword proxy, compared with 2/3 for the base model. This tiny experiment did not demonstrate a quality gain. Shorter latency for incorrect answers is not a performance improvement, and the observations do not establish why the model failed.
-- **GPU/API spend**: $0.00.
+- **Split**: family-disjoint by authored label — train `parsing` + `indexing`, validation
+  `ownership`, test `control_flow`. This reduces one source of overlap; it does not prove
+  the absence of semantic duplicates or pretraining exposure.
+- **Base model**: `Qwen/Qwen2.5-Coder-1.5B-Instruct` (Apache-2.0, commit
+  `2e1fd397ee46e1388853d2af2c993145b0f1098a`), 4-bit MLX. Weights are not in this checkout.
+- **Deterministic baseline**: error-code strategy classifier, 1/3 exact match on the
+  three-record test holdout.
+- **Historical LoRA run**: 50 iterations, rank 8, lr 1e-4, seed 42, peak memory 1.59 GB,
+  10.2 s. The adapter was not retained, so there is no verifiable adapter hash.
+- **Negative result**: the recorded adapter scored 0/3 on the held-out keyword proxy versus
+  2/3 for the base model; exact strategy match was 0/3 for both. Lower latency on incorrect
+  answers is not a quality improvement, and the cause of the failure is not established.
 
-## Reproducing the pipeline
+| Variant | Exact strategy match | Keyword coverage | Latency p50 | Latency max |
+|---|---:|---:|---:|---:|
+| MLX quantized base | 0/3 | 2/3 | 825 ms | 932 ms |
+| MLX LoRA adapter | 0/3 | 0/3 | 355 ms | 403 ms |
+
+The full narrative is in [`reports/negative-result.md`](reports/negative-result.md).
+
+## Quick Start
+
+The validation path is platform-independent and needs no model weights:
 
 ```bash
-# 1. Validate dataset integrity and family-disjoint splits
+# 1. Validate dataset integrity and family-disjoint splits (v1 and v2)
 python3 scripts/validate_dataset.py
+python3 scripts/validate_dataset_v2.py
 
-# 2. Run deterministic non-LLM baseline
+# 2. Compile every authored snippet and require the declared diagnostic (needs rustc)
+python3 scripts/validate_rustc_snippets.py
+python3 scripts/validate_rustc_snippets_v2.py
+
+# 3. Deterministic non-LLM baseline
 python3 scripts/baseline.py
 
-# 3. Prepare isolated MLX dataset splits
-python3 scripts/prepare_mlx_data.py
+# 4. Recompute the committed evidence manifest without model weights
+python3 scripts/verify_evidence.py --write-manifest /tmp/evidence-metadata.json
+diff -u evidence/metadata.json /tmp/evidence-metadata.json
 
-# 4. In an Apple-Silicon MLX environment, fetch the pinned model revision and
-#    create the 4-bit MLX directory safely into a fresh destination:
-scripts/prepare_mlx_model.sh
-
-# 5. Train the pinned experiment in an isolated, atomic run directory
-# scripts/train_mlx_lora.sh creates /tmp/model-lab-runs/<run_id>/ and outputs a run_manifest.json.
-scripts/train_mlx_lora.sh
-
-# 6. Evaluate using the generated run manifest:
-python3 scripts/evaluate_mlx.py --manifest /tmp/model-lab-runs/<run_id>/run_manifest.json
-
-# Alternatively, evaluate explicit model and adapter paths:
-python3 scripts/evaluate_mlx.py \
-  --model /tmp/model-lab-mlx/qwen2.5-coder-1.5b \
-  --adapter /tmp/model-lab-adapters
-
-# Or evaluate the quantized base model only:
-python3 scripts/evaluate_mlx.py \
-  --model /tmp/model-lab-mlx/qwen2.5-coder-1.5b \
-  --baseline-only
-
-# Recompute the shareable split and evaluation evidence without model weights:
-python3 scripts/validate_dataset.py --write-manifest /tmp/dataset-validation.json
-python3 scripts/verify_evidence.py
+# 5. Contract and provenance tests, plus the script-safety suite
+python3 -m unittest discover -s tests -p 'test_dataset_contract.py'
+python3 -m unittest discover -s tests -p 'test_v2_provenance.py'
+./tests/test_script_safety.sh
 ```
 
-### Script Safety & File Protection Contract
+The MLX training and evaluation path requires **Apple Silicon** with `mlx` and `mlx-lm`,
+and the base weights (not in this checkout):
+
+```bash
+python3 scripts/prepare_mlx_data.py
+scripts/prepare_mlx_model.sh     # fetch the pinned revision, build the 4-bit MLX directory
+scripts/train_mlx_lora.sh        # isolated /tmp/model-lab-runs/<run_id>/
+python3 scripts/evaluate_mlx.py --manifest /tmp/model-lab-runs/<run_id>/run_manifest.json
+```
+
+`./scripts/run_v2_experiment.sh` runs the full v2 pipeline. If the MLX weights are
+unavailable, it reports the run as blocked rather than fabricating outputs.
+
+## Correctness Levels
+
+The v2 evaluation isolates model-produced Rust code, formats it with `rustfmt`, and checks
+syntax and compilation with `rustc`. Keep the levels separate:
+
+| Level | Meaning here | Established by |
+|---|---|---|
+| Compiles | The snippet builds as a standalone Rust 2021 binary | `validate_rustc_snippets_v2.py`, v2 evaluation |
+| Behaviorally correct | The fixed code passes behavior tests | **Not claimed** — the dataset has no behavioral tests |
+| Semantically correct | The diagnosis/fix is the right explanation | **Not claimed** — keyword and exact-match proxies only |
+
+A compiling patch is not automatically a correct patch. Exact string match and keyword
+coverage are narrow proxies, not format validation, compilation success, or semantic
+correctness — and the corpus has only three held-out examples.
+
+## V2 Reproducible Pipeline
+
+- `scripts/evaluate_mlx_v2.py` performs the executable compile check described above.
+- `data/rust_errors_v2.jsonl` adds explicit `fixed_code` blocks for end-to-end verification.
+- `scripts/validate_rustc_snippets_v2.py` requires both that the original snippet raises
+  the expected error and that the fixed snippet compiles.
+- `scripts/validate_dataset_v2.py` / `scripts/evaluate_mlx_v2.py` carry v2 provenance
+  (`data/rust_errors_v2.jsonl`); a deterministic test prevents v1 provenance from leaking
+  into a v2 report.
+- Historical v1 evidence is preserved unchanged.
+
+## Safety and File-Protection Contract
 
 All helper shell and Python scripts enforce defensive path and environment guards:
-- User model, adapter, data, and source directories are never deleted or overwritten. Existing non-empty destination directories are rejected with an explicit error; cleanup is limited to temporary run directories whose ownership was atomically acquired by the process.
-- Path relationship checks verify all directory pairs (`model`, `data`, `adapter`, `hf_source`) preventing path collisions, parent/child nesting, symlinks, root (`/`), user home, and repository escapes without performing pre-check mutations.
-- Unique atomic run directories (`/tmp/model-lab-runs/run-XXXXXX`) isolate training runs by default, generating a `run_manifest.json` with exact configuration metadata for evaluation.
-- Existing Hugging Face checkouts with uncommitted modifications are detected and preserved without checkout or overwrite.
-- Clear, actionable errors are emitted if `git-lfs` is missing when LFS pointer weights are encountered, or when MLX executables (`mlx_lm.convert`, `mlx_lm.lora`) are absent from PATH.
-- Verify script safety rules at any time with: `./tests/test_script_safety.sh`.
 
-### Environment & Dependencies
+- User model, adapter, data, and source directories are never deleted or overwritten.
+  Existing non-empty destination directories are rejected; cleanup is limited to temporary
+  run directories whose ownership the process acquired atomically.
+- Path-relationship checks cover every directory pair (`model`, `data`, `adapter`,
+  `hf_source`), preventing collisions, parent/child nesting, symlink escape, root (`/`),
+  home, and repository escapes without pre-check mutations.
+- Unique atomic run directories (`/tmp/model-lab-runs/run-XXXXXX`) isolate training runs and
+  emit a `run_manifest.json` with exact configuration metadata.
+- Existing Hugging Face checkouts with local modifications are detected and preserved.
+- Missing `git-lfs`, or absent `mlx_lm.convert` / `mlx_lm.lora`, produce clear errors.
 
-The recorded training and evaluation runs used:
-- Apple Silicon (macOS Darwin 25.6.0, Apple M4 Pro, 24 GB unified memory)
-- Python 3.11+ with `mlx==0.32.2` and `mlx-lm==0.31.3` (Note: `mlx` and `mlx-lm` are independently versioned packages and must not be assumed to share identical version strings).
+These filesystem checks are **not** an adversarial OS sandbox. Compiler text and repository
+code are treated as data, not instructions.
 
-The clean-install audit verifies dataset validity, deterministic split/evidence manifests, non-LLM baseline accuracy, and data-split generation. It does not download model weights or rerun Apple Silicon training or evaluation. Dry-run and safety tests confirm wrapper safety and syntax, not training reproduction. CI also checks that generated split files and evidence metadata are unchanged.
+## Limitations
 
-## Safety and evaluation boundary
+- **The negative result is the result.** This tiny experiment did not demonstrate a quality
+  gain; do not read a general claim about LoRA or Qwen models from it.
+- **No reusable adapter.** The historical adapter was not retained; the raw outputs support
+  metric recomputation only, not full training reproduction.
+- **Tiny holdout.** Three test records and a hand-authored keyword proxy cannot establish
+  significance, equivalence, or semantic correctness.
+- **Memorization is a hypothesis, not a mechanism.** Rising validation loss alongside low
+  training loss is consistent with overfitting but does not establish its cause.
+- **MLX is Apple-Silicon-specific.** The Colab notebook validates the dataset contract,
+  baseline, and evidence only; it does not run or emulate MLX training.
 
-Compiler text and repository code are treated as data, not instructions. Suggested patches must be applied in an isolated temporary checkout and pass formatting, compilation, and behavior tests. A compiling patch is not automatically a correct patch.
+## Repository Map
 
-### Experiment Design & Rationale
+| Path | Contents |
+|---|---|
+| `data/rust_errors.jsonl` | Authored v1 corpus (12 records) |
+| `data/rust_errors_v2.jsonl` | v2 corpus with explicit `fixed_code` blocks |
+| `scripts/validate_dataset*.py` | Split-contract validation and manifests |
+| `scripts/validate_rustc_snippets*.py` | Standalone rustc compile checks |
+| `scripts/baseline.py` | Deterministic non-LLM baseline |
+| `scripts/prepare_mlx_*.sh`, `scripts/train_mlx_lora*.sh` | Apple-Silicon MLX pipeline |
+| `scripts/evaluate_mlx*.py` | Recorded-model evaluation (v1 and executable v2) |
+| `scripts/verify_evidence.py` | Recompute the committed evidence manifest |
+| `evidence/`, `reports/` | Recorded manifests, raw outputs, and the negative result |
+| `tests/test_script_safety.sh` | Path/ownership safety suite |
+| `notebooks/validation_colab.ipynb` | Platform-independent validation walkthrough |
 
-The primary rationale behind this experiment is to isolate structural instruction following from semantic reasoning. 
+## License
 
-- **Data splits:** Family-disjoint partitions test transfer to different authored categories. They do not guarantee that the model learned a general schema or that similar examples were absent from pretraining.
-- **Metrics:** Exact string match and keyword coverage are narrow proxies, not format validation, compilation success, or semantic correctness. The corpus has only three held-out examples.
-- **Corpus export:** `python3 scripts/generate_synthetic_data.py` prints the existing validated corpus. The legacy filename is retained, but it does not generate new examples. Do not redirect it onto `data/rust_errors.jsonl`, because shell redirection would truncate the source before it is read. `python3 scripts/validate_rustc_snippets.py` compiles all 12 snippets as standalone Rust 2021 binaries and requires each declared diagnostic code in stderr; CI runs this validation.
-- **Safety boundaries:** Explicit run directories are claimed using exclusive creation. Failed acquisition never grants cleanup ownership. These filesystem checks are not an adversarial OS sandbox.
-
-### Public evidence and negative result
-
-The split proof is preserved in [`evidence/dataset-validation.json`](evidence/dataset-validation.json).
-The tracked raw outputs, hashes, metric definitions, unavailable-weight status, and recomputed negative
-result are summarized in [`evidence/metadata.json`](evidence/metadata.json); the narrative is in
-[`reports/negative-result.md`](reports/negative-result.md). The historical run is evidence of what was
-observed locally, not a redistributable model or reusable adapter checkpoint.
-
-## V2 Reproducible Experiment
-
-The repository has been upgraded with a versioned `v2` reproducible experiment path.
-
-### Execution
-Run the full automated v2 pipeline:
-```bash
-./scripts/run_v2_experiment.sh
-```
-
-If the MLX model weights are unavailable or taking too long to download, the script will gracefully exit and report the run as blocked, rather than faking outputs.
-
-### Key Improvements in V2:
-* **Stronger Executable Evaluation**: `evaluate_mlx_v2.py` isolates the model-produced rust code, saves it into a temporary fixture, formats it with `rustfmt`, and checks syntax and compilation success with `rustc`. Compilation success is NOT semantic or behavioral correctness. (No behavioral tests exist in this dataset).
-* **Dataset Upgrades**: `data/rust_errors_v2.jsonl` contains explicit `fixed_code` blocks for end-to-end verification.
-* **Deterministic Verification**: `validate_rustc_snippets_v2.py` validates that BOTH the original snippet throws the expected error AND the fixed snippet compiles without errors.
-* **Separation of History**: Historical v1 evidence is preserved perfectly. The v2 scripts (`_v2` appended) safely operate on the upgraded pipeline.
+MIT — see [LICENSE](LICENSE).
