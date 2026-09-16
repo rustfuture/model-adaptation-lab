@@ -104,7 +104,7 @@ Run the full automated v2 pipeline:
 If the MLX model weights are unavailable or taking too long to download, the script will gracefully exit and report the run as blocked, rather than faking outputs.
 
 ### Key Improvements in V2:
-* **Stronger Executable Evaluation**: `evaluate_mlx_v2.py` isolates the model-produced rust code, saves it into a temporary fixture, formats it with `rustfmt`, and checks semantic compilation correctness with `rustc`.
+* **Stronger Executable Evaluation**: `evaluate_mlx_v2.py` isolates the model-produced rust code, saves it into a temporary fixture, formats it with `rustfmt`, and checks syntax and compilation success with `rustc`. Compilation success is NOT semantic or behavioral correctness. (No behavioral tests exist in this dataset).
 * **Dataset Upgrades**: `data/rust_errors_v2.jsonl` contains explicit `fixed_code` blocks for end-to-end verification.
 * **Deterministic Verification**: `validate_rustc_snippets_v2.py` validates that BOTH the original snippet throws the expected error AND the fixed snippet compiles without errors.
 * **Separation of History**: Historical v1 evidence is preserved perfectly. The v2 scripts (`_v2` appended) safely operate on the upgraded pipeline.

@@ -186,7 +186,7 @@ def main():
     parser.add_argument(
         "--data",
         type=Path,
-        default=ROOT / "data" / "rust_errors.jsonl",
+        default=ROOT / "data" / "rust_errors_v2.jsonl",
         help="JSONL dataset path",
     )
     parser.add_argument(
@@ -511,7 +511,7 @@ def main():
         } if adapter_path else None) if not args.baseline_only else None,
         "parameters": {
             "baseline_only": args.baseline_only,
-            "max_tokens": 150,
+            "max_tokens": 250,
             "system_prompt_sha256": hashlib.sha256(SYSTEM_PROMPT.encode("utf-8")).hexdigest(),
         },
         "base": base_summary,
