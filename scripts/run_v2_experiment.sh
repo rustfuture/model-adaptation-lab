@@ -18,7 +18,7 @@ python3 "$repo_root/scripts/validate_rustc_snippets_v2.py"
 if [[ ! -d "/tmp/model-lab-mlx/qwen2.5-coder-1.5b" ]]; then
     echo "Model weights are unavailable. Training run is blocked."
     echo "To run, ensure you have the MLX model downloaded and converted at /tmp/model-lab-mlx/qwen2.5-coder-1.5b"
-    exit 0
+    exit 77
 fi
 
 echo "Running v2 MLX Base Evaluation..."
@@ -27,9 +27,10 @@ python3 "$repo_root/scripts/evaluate_mlx_v2.py" --model /tmp/model-lab-mlx/qwen2
 echo "Running v2 MLX Training..."
 export MLX_ITERS=50
 export MLX_LEARNING_RATE=1e-4
+export MLX_RUN_ID="run-v2-experiment-$(date +%s)"
 "$repo_root/scripts/train_mlx_lora_v2.sh" /tmp/model-lab-mlx/qwen2.5-coder-1.5b
 
-run_dir=$(ls -td "$repo_root/run-"* | head -1)
+run_dir="/tmp/model-lab-runs/$MLX_RUN_ID"
 adapters_dir="$run_dir/adapters"
 
 echo "Running v2 MLX LoRA Evaluation..."
