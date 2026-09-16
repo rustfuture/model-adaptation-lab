@@ -1,9 +1,7 @@
+<h1 align="center">Model Adaptation Lab</h1>
 <p align="center">
-  <h1 align="center">Model Adaptation Lab</h1>
-  <p align="center">
-    Reproducible model adaptation — including the negative result. An evidence-first
-    experiment on structured Rust compiler-error explanations.
-  </p>
+  Reproducible model adaptation — including the negative result. An evidence-first
+  experiment on structured Rust compiler-error explanations.
 </p>
 
 <p align="center">
