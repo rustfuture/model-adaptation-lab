@@ -24,9 +24,8 @@
 
 This repository contains a reproducible data contract, split validator, deterministic
 non-LLM baseline, and a local Apple-Silicon MLX LoRA training and evaluation pipeline for
-structured Rust compiler-error explanations. All recorded runs were done locally on an
-Apple M4 Pro (24 GB) with **zero cloud GPU or API spend**. The historical run produced a
-negative result, and that result is preserved rather than hidden.
+structured Rust compiler-error explanations. The recorded runs were done locally on an
+Apple M4 Pro (24 GB). The historical run produced a negative result.
 
 ## Status
 
@@ -159,8 +158,8 @@ code are treated as data, not instructions.
 
 ## Limitations
 
-- **The negative result is the result.** This tiny experiment did not demonstrate a quality
-  gain; do not read a general claim about LoRA or Qwen models from it.
+- **The recorded run did not show a quality gain.** This is a single small experiment; it
+  does not support a general claim about LoRA or Qwen models.
 - **No reusable adapter.** The historical adapter was not retained; the raw outputs support
   metric recomputation only, not full training reproduction.
 - **Tiny holdout.** Three test records and a hand-authored keyword proxy cannot establish
