@@ -23,9 +23,12 @@ jobs:
       - run: pyflakes scripts/
       - run: python3 scripts/validate_dataset.py
       - run: python3 scripts/validate_rustc_snippets.py
+      - run: python3 scripts/validate_dataset_v2.py
+      - run: python3 scripts/validate_rustc_snippets_v2.py
       - run: python3 scripts/validate_dataset.py --write-manifest "$RUNNER_TEMP/dataset-validation.json"
       - run: diff -u evidence/dataset-validation.json "$RUNNER_TEMP/dataset-validation.json"
       - run: python3 -m unittest discover -s tests -p 'test_dataset_contract.py'
+      - run: python3 -m unittest discover -s tests -p 'test_v2_provenance.py'
       - run: python3 scripts/baseline.py
       - run: python3 scripts/prepare_mlx_data.py
       - run: git diff --exit-code -- data/mlx
