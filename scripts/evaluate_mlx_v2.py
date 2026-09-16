@@ -12,7 +12,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from validate_dataset import build_manifest, validate_records
+from validate_dataset_v2 import build_manifest, validate_records
 
 REQUIRED_RECORD_FIELDS = [
     "id",
