@@ -419,7 +419,6 @@ def main():
 
             # Compile in temporary isolated fixture
             compiles = False
-            compile_error = ""
             with tempfile.TemporaryDirectory() as tmpdir:
                 f_rs = os.path.join(tmpdir, "main.rs")
                 with open(f_rs, "w") as f:
@@ -431,7 +430,6 @@ def main():
                 # rustc
                 res = subprocess.run(["rustc", "--edition", "2021", f_rs], capture_output=True, text=True)
                 compiles = (res.returncode == 0)
-                compile_error = res.stderr
 
             results.append({
 
