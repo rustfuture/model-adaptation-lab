@@ -1,8 +1,6 @@
-<h1 align="center">Model Adaptation Lab</h1>
-<p align="center">
-  Reproducible model adaptation — including the negative result. An evidence-first
-  experiment on structured Rust compiler-error explanations.
-</p>
+# Model Adaptation Lab
+
+A reproducible experimental testbed and evaluation harness for ML practitioners researching local LoRA adaptation, deterministic baselines, and negative results on structured Rust compiler-error explanations.
 
 <p align="center">
   <a href="https://github.com/rustfuture/model-adaptation-lab/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rustfuture/model-adaptation-lab/actions/workflows/ci.yml/badge.svg?branch=main"></a>
@@ -10,6 +8,14 @@
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square"></a>
   <a href="https://colab.research.google.com/github/rustfuture/model-adaptation-lab/blob/main/notebooks/validation_colab.ipynb"><img alt="Open validation in Colab" src="https://colab.research.google.com/assets/colab-badge.svg"></a>
 </p>
+
+**Status:** Research prototype / experimental lab (historical v1 negative result preserved; reproducible dataset contract and evaluation harness verified; base and adapter weights not in checkout).
+
+- **Validates dataset split contracts**: Enforces family-disjoint train/validation/test splits and schema invariants across authored Rust error datasets ([`data/rust_errors.jsonl`](data/rust_errors.jsonl), [`scripts/validate_dataset.py`](scripts/validate_dataset.py)).
+- **Evaluates deterministic non-LLM baseline**: Scores a rule-based error-code strategy classifier achieving 1/3 exact strategy match on the held-out test split ([`scripts/baseline.py`](scripts/baseline.py)).
+- **Provides Apple Silicon MLX LoRA training pipeline**: Implements isolated local fine-tuning and evaluation pipelines for `Qwen2.5-Coder-1.5B-Instruct` using Apple Silicon MLX ([`scripts/train_mlx_lora.sh`](scripts/train_mlx_lora.sh), [`scripts/evaluate_mlx.py`](scripts/evaluate_mlx.py)).
+- **Preserves historical negative result**: Documents that the recorded LoRA adapter degraded keyword coverage from 2/3 to 0/3 with no quality gain ([`reports/negative-result.md`](reports/negative-result.md), [`evidence/metadata.json`](evidence/metadata.json)).
+- **Enforces executable Rust compile checks**: Validates compiler error generation and fixed snippet compilation via standalone `rustc` compiler checks ([`scripts/validate_rustc_snippets_v2.py`](scripts/validate_rustc_snippets_v2.py)).
 
 <p align="center">
   <a href="#status">Status</a> ·
@@ -52,26 +58,19 @@ flowchart TD
 
 ## What Was Run
 
-- **Dataset**: 12 authored, synthetic Rust-error records; no customer or scraped private data.
-- **Split**: family-disjoint by authored label — train `parsing` + `indexing`, validation
-  `ownership`, test `control_flow`. This reduces one source of overlap; it does not prove
-  the absence of semantic duplicates or pretraining exposure.
-- **Base model**: `Qwen/Qwen2.5-Coder-1.5B-Instruct` (Apache-2.0, commit
-  `2e1fd397ee46e1388853d2af2c993145b0f1098a`), 4-bit MLX. Weights are not in this checkout.
-- **Deterministic baseline**: error-code strategy classifier, 1/3 exact match on the
-  three-record test holdout.
-- **Historical LoRA run**: 50 iterations, rank 8, lr 1e-4, seed 42, peak memory 1.59 GB,
-  10.2 s. The adapter was not retained, so there is no verifiable adapter hash.
-- **Negative result**: the recorded adapter scored 0/3 on the held-out keyword proxy versus
-  2/3 for the base model; exact strategy match was 0/3 for both. Lower latency on incorrect
-  answers is not a quality improvement, and the cause of the failure is not established.
+- **Dataset**: 12 authored, synthetic Rust-error records; no customer or scraped private data ([`data/rust_errors.jsonl`](data/rust_errors.jsonl), [`evidence/dataset-validation.json`](evidence/dataset-validation.json)).
+- **Split**: family-disjoint by authored label — train `parsing` + `indexing`, validation `ownership`, test `control_flow` ([`evidence/dataset-validation.json`](evidence/dataset-validation.json), [`scripts/validate_dataset.py`](scripts/validate_dataset.py)). This reduces one source of overlap; it does not prove the absence of semantic duplicates or pretraining exposure.
+- **Base model**: `Qwen/Qwen2.5-Coder-1.5B-Instruct` (Apache-2.0, commit `2e1fd397ee46e1388853d2af2c993145b0f1098a`), 4-bit MLX ([`training-manifest.json`](training-manifest.json), [`reports/model-selection.md`](reports/model-selection.md)). Weights are not in this checkout.
+- **Deterministic baseline**: error-code strategy classifier, 1/3 exact match on the three-record test holdout ([`scripts/baseline.py`](scripts/baseline.py)).
+- **Historical LoRA run**: 50 iterations, rank 8, lr 1e-4, seed 42, peak memory 1.59 GB, 10.2 s ([`training-manifest.json`](training-manifest.json), [`reports/training-run-2026-09-06.md`](reports/training-run-2026-09-06.md)). The adapter was not retained, so there is no verifiable adapter hash.
+- **Negative result**: the recorded adapter scored 0/3 on the held-out keyword proxy versus 2/3 for the base model; exact strategy match was 0/3 for both ([`evidence/metadata.json`](evidence/metadata.json), [`reports/negative-result.md`](reports/negative-result.md)). Lower latency on incorrect answers is not a quality improvement, and the cause of the failure is not established.
 
 | Variant | Exact strategy match | Keyword coverage | Latency p50 | Latency max |
 |---|---:|---:|---:|---:|
 | MLX quantized base | 0/3 | 2/3 | 825 ms | 932 ms |
 | MLX LoRA adapter | 0/3 | 0/3 | 355 ms | 403 ms |
 
-The full narrative is in [`reports/negative-result.md`](reports/negative-result.md).
+*Recomputed from raw outputs in [`evidence/metadata.json`](evidence/metadata.json), [`evidence/raw/mlx_base_quantized-test.jsonl`](evidence/raw/mlx_base_quantized-test.jsonl), and [`evidence/raw/mlx_lora_adapter-test.jsonl`](evidence/raw/mlx_lora_adapter-test.jsonl). The full narrative is in [`reports/negative-result.md`](reports/negative-result.md).*
 
 ## Quick Start
 
@@ -93,9 +92,9 @@ python3 scripts/baseline.py
 python3 scripts/verify_evidence.py --write-manifest /tmp/evidence-metadata.json
 diff -u evidence/metadata.json /tmp/evidence-metadata.json
 
-# 5. Contract and provenance tests, plus the script-safety suite
-python3 -m unittest discover -s tests -p 'test_dataset_contract.py'
-python3 -m unittest discover -s tests -p 'test_v2_provenance.py'
+# 5. Contract and provenance tests (unittest or pytest), plus the script-safety suite
+python3 -m unittest discover -s tests -p 'test_*.py'
+# or: python3 -m pytest -q
 ./tests/test_script_safety.sh
 ```
 
@@ -140,7 +139,7 @@ correctness — and the corpus has only three held-out examples.
 
 ## Safety and File-Protection Contract
 
-All helper shell and Python scripts enforce defensive path and environment guards:
+All helper shell and Python scripts enforce defensive path and environment guards (tested in [`tests/test_script_safety.sh`](tests/test_script_safety.sh)):
 
 - User model, adapter, data, and source directories are never deleted or overwritten.
   Existing non-empty destination directories are rejected; cleanup is limited to temporary

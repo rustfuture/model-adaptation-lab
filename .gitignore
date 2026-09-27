@@ -1,5 +1,8 @@
+target/
 __pycache__/
 .venv/
 *.pyc
+.ipynb_checkpoints/
+.pytest_cache/
 artifacts/
 models/
