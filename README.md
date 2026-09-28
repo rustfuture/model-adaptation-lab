@@ -1,13 +1,13 @@
 # Model Adaptation Lab
 
-This software trains and checks small text models that explain errors reported by the Rust compiler.
+This software tests whether LoRA fine-tuning helps one small model (Qwen2.5-Coder-1.5B) explain Rust compiler errors, using a 12-record dataset.
 
 [![CI](https://github.com/rustfuture/model-adaptation-lab/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/rustfuture/model-adaptation-lab/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Open validation in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/rustfuture/model-adaptation-lab/blob/main/notebooks/validation_colab.ipynb)
 
 **Status:** Research prototype; dataset checks pass and the negative result is preserved.
 
 - Checks dataset fields and keeps Rust error families apart across data splits ([dataset](data/rust_errors.jsonl), [validator](scripts/validate_dataset.py)).
-- Compares model answers with simple rules ([baseline](scripts/baseline.py)); the recorded run showed no gain ([report](reports/negative-result.md), [evidence](evidence/metadata.json)).
+- Compares model answers with one deterministic rule baseline ([baseline](scripts/baseline.py)); the recorded run showed no gain ([report](reports/negative-result.md), [evidence](evidence/metadata.json)).
 - Can tune a small set of model weights with LoRA (Low-Rank Adaptation) using Apple's MLX toolkit on Apple Silicon ([training](scripts/train_mlx_lora.sh), [evaluation](scripts/evaluate_mlx.py)).
 - Checks Rust examples with the Rust compiler and records evaluation evidence ([compile checks](scripts/validate_rustc_snippets_v2.py)).
 
