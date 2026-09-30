@@ -21,6 +21,14 @@ A local LoRA adaptation experiment was recorded on Apple Silicon using MLX witho
 - **Splits**: 6 train, 3 validation, 3 test (family-disjoint)
 - **Test Integrity**: The 3 test records were strictly isolated in `data/mlx/test.jsonl` and excluded from the training data folder (`/tmp/model-lab-data` contained only `train.jsonl` and `valid.jsonl`).
 
+> **Note added 2026-09-30 (values above are unchanged).** The dataset hash recorded here,
+> `bd488f5826fdae9e8fab7ad0911534fad96757bdd7cb99c45103870f68392d05`, is that of `data/rust_errors.jsonl` at
+> commit `96d317d` (2026-09-06). The file in the repository now hashes to
+> `505ba845a35306ca3f046ec37ab8687c25830259279821e0caf2def0e395b084` because commit `cf0e452`
+> (2026-09-15) edited the `code` field of five records (`train-index-003`, `val-borrow-001`, `val-borrow-002`,
+> `val-borrow-003`, `test-control-001`) and regenerated `data/mlx/*`. Data regenerated from the current file is
+> therefore not byte-identical to this run's training data. Details: `evidence/README.md`, "Dataset hash note".
+
 ## LoRA Configuration & Metrics
 
 - **Method**: LoRA (low-rank adaptation)

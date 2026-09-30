@@ -9,12 +9,37 @@ small text outputs; nothing there was regenerated. Deterministic metadata is mai
 
 - Corpus: `data/rust_errors.jsonl` — 12 authored synthetic Rust-error records. No customer or scraped
   private data.
-- Dataset SHA-256: `bd488f5826fdae9e8fab7ad0911534fad96757bdd7cb99c45103870f68392d05`
+- Dataset SHA-256 of the recorded run: `bd488f5826fdae9e8fab7ad0911534fad96757bdd7cb99c45103870f68392d05`
+  (the committed file now hashes differently; see the [dataset hash note](#dataset-hash-note))
 - Splits: family-disjoint (train: `parsing`, `indexing`; validation: `ownership`; test: `control_flow`).
 - Test hold-out: 3 records.
 - Split record IDs and per-split ID hashes are preserved in
   [`dataset-validation.json`](dataset-validation.json). The evaluator now validates the same full
   split contract before loading a model.
+
+## Dataset hash note
+
+Added 2026-09-30. Two dataset hashes appear in this repository, and both are correct for the file they
+describe:
+
+- `bd488f58...92d05` is the hash of `data/rust_errors.jsonl` as committed in `96d317d` (2026-09-06), the
+  file the recorded run used. It is kept unchanged in this file, `training-manifest.json` and
+  `reports/training-run-2026-09-06.md` because those describe the run.
+- `505ba845a35306ca3f046ec37ab8687c25830259279821e0caf2def0e395b084` is the hash of the file now in
+  `data/rust_errors.jsonl` and is the value in `metadata.json` and `dataset-validation.json`.
+
+The file changed in commit `cf0e452` (2026-09-15, "ci: validate dataset snippets with rustc"), which
+edited the `code` field of five records so their snippets compile or fail with the labelled error under
+`rustc`: `train-index-003`, `val-borrow-001`, `val-borrow-002`, `val-borrow-003` and `test-control-001`.
+IDs, splits, families, error codes, diagnoses, fix strategies and expected changes are unchanged. The same
+commit regenerated `data/mlx/train.jsonl`, `valid.jsonl` and `test.jsonl`.
+
+Consequences: `data/mlx/*` regenerated from the current dataset (as CI does) is **not** byte-identical to the
+data the recorded run trained and evaluated on; regenerating `data/mlx/*` from the `96d317d` file with
+`scripts/prepare_mlx_data.py` reproduces the files as they were before `cf0e452`. The preserved raw model
+outputs in `raw/` answered the pre-`cf0e452` prompts, including the older `test-control-001` snippet. The
+recorded metrics were recomputed against fields that did not change (expected strategies and keywords), but
+the run itself cannot be reproduced against the current dataset file.
 
 ## Model
 
@@ -50,7 +75,8 @@ python3 scripts/ollama_baseline.py
 
 The three files under `evidence/raw/` are byte-for-byte copies of the local `artifacts/` files
 (SHA-256 verified) and are the only preserved model outputs. The MLX files were produced against
-dataset `bd488f5826fdae9e8fab7ad0911534fad96757bdd7cb99c45103870f68392d05` and base model revision
+dataset `bd488f5826fdae9e8fab7ad0911534fad96757bdd7cb99c45103870f68392d05` (not the current
+`505ba845...`; see the [dataset hash note](#dataset-hash-note)) and base model revision
 `2e1fd397ee46e1388853d2af2c993145b0f1098a`.
 
 - `evidence/raw/mlx_base_quantized-test.jsonl`
