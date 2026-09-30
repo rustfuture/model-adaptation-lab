@@ -26,6 +26,16 @@ a claim about LoRA or Qwen models in general.
 | MLX quantized base | 0/3 | 2/3 | 825 ms | 932 ms |
 | MLX LoRA adapter | 0/3 | 0/3 | 355 ms | 403 ms |
 
+For comparison on the same three test records, the deterministic rule baseline
+(`python3 scripts/baseline.py`, `scripts/baseline.py`) scores 1/3 exact strategy match, ahead of both
+variants above (0/3 each); the preserved Ollama prompt baseline (`qwen2.5-coder:1.5b`, no adapter,
+`evidence/metadata.json`) scores 0/3 exact match and 2/3 keyword coverage. The rule baseline is a hand-written
+table from error code to strategy string that includes an entry for the held-out code `E0004`, and the
+script itself calls it a "deterministic plumbing lower bound". It is not a tuned competitor and its
+keyword coverage was not measured, but on exact strategy match it did better than either model
+variant. Exact match is strict whole-response equality (`evidence/metadata.json`,
+`evaluation_definitions`), so a 0/3 model score says little about how close the responses were.
+
 The adapter produced concise two-line responses in these three examples, while
 the base responses were longer. Lower latency coincided with incorrect answers
 and is therefore not treated as a quality improvement. Validation loss rose

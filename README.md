@@ -7,7 +7,7 @@ This software tests whether LoRA fine-tuning helps one small model (Qwen2.5-Code
 **Status:** Research prototype; dataset checks pass and the negative result is preserved.
 
 - Checks dataset fields and keeps Rust error families apart across data splits ([dataset](data/rust_errors.jsonl), [validator](scripts/validate_dataset.py)).
-- Compares model answers with one deterministic rule baseline ([baseline](scripts/baseline.py)); the recorded run showed no gain ([report](reports/negative-result.md), [evidence](evidence/metadata.json)).
+- Compares model answers with one deterministic rule baseline ([baseline](scripts/baseline.py)); the recorded run showed no gain ([report](reports/negative-result.md), [evidence](evidence/metadata.json)). On the three held-out records the rule baseline scores 1/3 exact strategy match, ahead of both model variants (0/3 each); its rule table is hand-written and includes an entry for a held-out error code, so it is a plumbing floor, not a tuned competitor (details in the [report](reports/negative-result.md)).
 - Can tune a small set of model weights with LoRA (Low-Rank Adaptation) using Apple's MLX toolkit on Apple Silicon ([training](scripts/train_mlx_lora.sh), [evaluation](scripts/evaluate_mlx.py)).
 - Checks Rust examples with the Rust compiler and records evaluation evidence ([compile checks](scripts/validate_rustc_snippets_v2.py)).
 
@@ -89,6 +89,7 @@ The tests check script lint, dataset fields and splits, Rust compilation, baseli
 ## Limitations
 
 - The recorded run showed no quality gain. This single small experiment says nothing general about LoRA or Qwen models.
+- The recorded run trained on dataset SHA-256 `bd488f58...`; the committed `data/rust_errors.jsonl` is now `505ba845...` because five records' `code` fields were edited on 2026-09-15 (commit `cf0e452`). `data/mlx/*` regenerated from the current file is therefore not byte-identical to the recorded run's training data. See [evidence/README.md](evidence/README.md#dataset-hash-note).
 - The historical adapter is not included, so its full training run cannot be repeated from this checkout.
 - The small test set and hand-written keyword measure cannot establish significance or semantic correctness.
 - The loss pattern fits overfitting, but the experiment does not establish the cause.
