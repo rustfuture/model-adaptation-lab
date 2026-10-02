@@ -13,14 +13,26 @@ This software tests whether LoRA fine-tuning helps one small model (Qwen2.5-Code
 
 ## Quick start
 
-Run the data checks and baseline without model weights:
+You need Git and Python 3 (CI uses Python 3.11; [download Python](https://www.python.org/downloads/)). The data checks and baseline use the standard library and need no model weights, GPU, API key, or MLX installation. Start with:
 
 ```bash
+git clone https://github.com/rustfuture/model-adaptation-lab.git
+cd model-adaptation-lab
+
 python3 scripts/validate_dataset.py
 python3 scripts/validate_dataset_v2.py
+python3 scripts/baseline.py
+```
+
+The validators print dataset split summaries; the baseline prints its score on the test records. These checks do not train or download a model. On Windows, use your Python 3 command (for example `py -3`) in place of `python3`.
+
+### Optional compiler and evidence checks
+
+For the Rust snippet checks, also install a Rust toolchain with Cargo ([rustup](https://rustup.rs/)). The shell safety check below requires Bash; these commands use a macOS/Linux shell.
+
+```bash
 python3 scripts/validate_rustc_snippets.py
 python3 scripts/validate_rustc_snippets_v2.py
-python3 scripts/baseline.py
 python3 scripts/verify_evidence.py --write-manifest /tmp/evidence-metadata.json
 diff -u evidence/metadata.json /tmp/evidence-metadata.json
 python3 -m unittest discover -s tests -p 'test_*.py'
