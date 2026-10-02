@@ -215,8 +215,8 @@ mkdir -p "$data_dir"
 mkdir -p "$adapter_dir"
 
 python3 "$repo_root/scripts/prepare_mlx_data_v2.py" >/dev/null
-cp "$repo_root/data/mlx/train.jsonl" "$data_dir/train.jsonl"
-cp "$repo_root/data/mlx/valid.jsonl" "$data_dir/valid.jsonl"
+cp "$repo_root/data/mlx_v2/train.jsonl" "$data_dir/train.jsonl"
+cp "$repo_root/data/mlx_v2/valid.jsonl" "$data_dir/valid.jsonl"
 if [[ -e "$data_dir/test.jsonl" || -L "$data_dir/test.jsonl" ]]; then
   echo "Error: Test split must remain outside the training data directory: $data_dir/test.jsonl" >&2
   exit 2
