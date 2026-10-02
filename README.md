@@ -6,7 +6,8 @@ This software tests whether LoRA fine-tuning helps one small model (Qwen2.5-Code
 
 [![CI](https://github.com/rustfuture/model-adaptation-lab/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/rustfuture/model-adaptation-lab/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Open validation in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/rustfuture/model-adaptation-lab/blob/main/notebooks/validation_colab.ipynb)
 
-**Status:** Research prototype; dataset checks pass and the negative result is preserved.
+> [!NOTE]
+> **Status:** Research prototype; dataset checks pass and the negative result is preserved.
 
 - Checks dataset fields and keeps Rust error families apart across data splits ([dataset](data/rust_errors.jsonl), [validator](scripts/validate_dataset.py)).
 - Compares model answers with one deterministic rule baseline ([baseline](scripts/baseline.py)); the recorded run showed no gain ([report](reports/negative-result.md), [evidence](evidence/metadata.json)). On the three held-out records the rule baseline scores 1/3 exact strategy match, ahead of both model variants (0/3 each); its rule table is hand-written and includes an entry for a held-out error code, so it is a plumbing floor, not a tuned competitor (details in the [report](reports/negative-result.md)).
@@ -98,7 +99,11 @@ diff -u evidence/metadata.json "$RUNNER_TEMP/evidence-metadata.json"
 ./tests/test_script_safety.sh
 ```
 
+<details><summary>More test commands</summary>
+
 The tests check script lint, dataset fields and splits, Rust compilation, baseline scoring, prepared data, saved evidence, and filesystem path safety.
+
+</details>
 
 ## Limitations
 
