@@ -1,5 +1,7 @@
 # Model Adaptation Lab
 
+![model-adaptation-lab project overview](docs/images/social-preview.png)
+
 This software tests whether LoRA fine-tuning helps one small model (Qwen2.5-Coder-1.5B) explain Rust compiler errors, using a 12-record dataset.
 
 [![CI](https://github.com/rustfuture/model-adaptation-lab/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/rustfuture/model-adaptation-lab/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Open validation in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/rustfuture/model-adaptation-lab/blob/main/notebooks/validation_colab.ipynb)
