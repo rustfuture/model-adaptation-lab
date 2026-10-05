@@ -47,8 +47,8 @@ Model training needs an Apple Silicon computer, MLX, mlx-lm, and the model weigh
 ```bash
 python3 scripts/prepare_mlx_data.py
 scripts/prepare_mlx_model.sh
-scripts/train_mlx_lora.sh
-python3 scripts/evaluate_mlx.py --manifest /tmp/model-lab-runs/<run_id>/run_manifest.json
+run_manifest="$(set -o pipefail; scripts/train_mlx_lora.sh | tee /dev/stderr | sed -n 's/^Training complete\. Run manifest generated at: //p')" &&
+python3 scripts/evaluate_mlx.py --manifest "$run_manifest"
 ```
 
 The v2 runner executes its full pipeline and reports when model weights are unavailable: `./scripts/run_v2_experiment.sh`.
